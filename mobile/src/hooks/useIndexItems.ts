@@ -1,19 +1,11 @@
 import { useQuery } from '@tanstack/react-query';
-import axios from 'axios';
 import {
   ContentVersionResponse,
   IndexItemsResponse,
   ListIndexItemsParams,
   TopicCount,
 } from '../types';
-
-const API_BASE_URL =
-  process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000/api';
-
-const apiClient = axios.create({
-  baseURL: API_BASE_URL,
-  timeout: 10000,
-});
+import { apiClient } from '../lib/apiClient';
 
 export const useIndexItems = (params: ListIndexItemsParams = {}) => {
   const { page = 1, limit = 20, generalTopic, subtopic, q } = params;

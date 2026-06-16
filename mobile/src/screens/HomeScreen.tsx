@@ -5,10 +5,12 @@ import {
   View,
   TouchableOpacity,
   SafeAreaView,
+  Image,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../types/navigation';
 import { useSyncStatus } from '../hooks/useSyncStatus';
+import { formatApiError } from '../lib/formatApiError';
 
 type HomeScreenProps = NativeStackScreenProps<RootStackParamList, 'Home'>;
 
@@ -23,20 +25,30 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   } = useSyncStatus();
 
   const handleCheckForUpdates = async () => {
-    const result = await checkForUpdates();
+    try {
+      const result = await checkForUpdates();
 
-    if (result.hasNewContent) {
-      setCheckMessage('New content found. Open Browse Topics and pull to refresh.');
-      return;
+      if (result.hasNewContent) {
+        setCheckMessage('New content found. Open Browse Topics and pull to refresh.');
+        return;
+      }
+
+      setCheckMessage('You are already up to date.');
+    } catch (error) {
+      setCheckMessage(`Unable to check updates: ${formatApiError(error)}`);
     }
-
-    setCheckMessage('You are already up to date.');
   };
 
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
-        <Text style={styles.title}>Clarifying Faith and Reason</Text>
+        <View style={styles.headerLockup}>
+          <Image
+            source={require('../../assets/lens_of_truth_header.png')}
+            style={styles.headerImage}
+            resizeMode="cover"
+          />
+        </View>
         <Text style={styles.subtitle}>Browse responses to common questions</Text>
 
         <View style={styles.buttonContainer}>
@@ -105,12 +117,16 @@ const styles = StyleSheet.create({
     paddingVertical: 40,
     justifyContent: 'space-between',
   },
-  title: {
-    fontSize: 32,
-    fontWeight: '700',
-    color: '#1f2937',
-    marginBottom: 8,
-    textAlign: 'center',
+  headerLockup: {
+    aspectRatio: 3.7,
+    width: '100%',
+    alignSelf: 'center',
+    overflow: 'hidden',
+    backgroundColor: '#111827',
+  },
+  headerImage: {
+    width: '100%',
+    height: '100%',
   },
   subtitle: {
     fontSize: 16,

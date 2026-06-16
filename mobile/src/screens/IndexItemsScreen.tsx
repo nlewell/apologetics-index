@@ -17,6 +17,7 @@ import { IndexItemCard } from '../components/IndexItemCard';
 import { RootStackParamList } from '../types/navigation';
 import { IndexItem } from '../types';
 import { useSyncStatus } from '../hooks/useSyncStatus';
+import { formatApiError } from '../lib/formatApiError';
 
 type IndexItemsScreenProps = NativeStackScreenProps<
   RootStackParamList,
@@ -161,9 +162,7 @@ export const IndexItemsScreen: React.FC<IndexItemsScreenProps> = ({
       <SafeAreaView style={styles.container}>
         <View style={styles.errorContainer}>
           <Text style={styles.errorText}>Error loading items</Text>
-          <Text style={styles.errorDetail}>
-            {error instanceof Error ? error.message : 'Unknown error'}
-          </Text>
+          <Text style={styles.errorDetail}>{formatApiError(error)}</Text>
           <TouchableOpacity
             style={styles.retryButton}
             onPress={() => refetch()}

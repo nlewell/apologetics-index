@@ -88,6 +88,18 @@ export class IndexItemsService {
                     mode: 'insensitive',
                   },
                 },
+                {
+                  shortResponseAuthor: {
+                    contains: input.q,
+                    mode: 'insensitive',
+                  },
+                },
+                {
+                  shortResponseLength: {
+                    contains: input.q,
+                    mode: 'insensitive',
+                  },
+                },
               ],
             }
           : {},

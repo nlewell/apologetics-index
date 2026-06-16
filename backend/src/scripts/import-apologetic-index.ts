@@ -5,21 +5,19 @@ import path from 'node:path';
 import { PrismaClient } from '@prisma/client';
 import { parse } from 'csv-parse/sync';
 
-type CsvRow = {
-  'General Topic': string;
-  Subtopic: string;
-  Charge: string;
-  'Short response URL': string;
-  'Video 1 Length': string;
-  'Video 1 Author': string;
-  'Video 1 timestamp where relevant answer appears in video': string;
-};
+type CsvRow = Record<string, string | undefined>;
 
 type NormalizedRow = {
   generalTopic: string | null;
   subtopic: string | null;
   charge: string | null;
   shortResponseUrl: string | null;
+  shortResponseLength: string | null;
+  shortResponseAuthor: string | null;
+  longResponseUrl: string | null;
+  longResponseLength: string | null;
+  debateUrl: string | null;
+  articleUrl: string | null;
   video1Length: string | null;
   video1Author: string | null;
   video1Timestamp: string | null;
@@ -32,6 +30,16 @@ const csvPath = path.resolve(process.cwd(), 'data/raw/apologetic-index.csv');
 function cleanValue(value: string | undefined): string | null {
   const trimmed = (value ?? '').trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+function readColumn(row: CsvRow, keys: string[]): string | undefined {
+  for (const key of keys) {
+    if (typeof row[key] === 'string') {
+      return row[key];
+    }
+  }
+
+  return undefined;
 }
 
 function isValidUrl(value: string | null): boolean {
@@ -53,6 +61,12 @@ function rowToSourceKey(row: NormalizedRow): string {
     row.subtopic ?? '',
     row.charge ?? '',
     row.shortResponseUrl ?? '',
+    row.shortResponseLength ?? '',
+    row.shortResponseAuthor ?? '',
+    row.longResponseUrl ?? '',
+    row.longResponseLength ?? '',
+    row.debateUrl ?? '',
+    row.articleUrl ?? '',
     row.video1Length ?? '',
     row.video1Author ?? '',
     row.video1Timestamp ?? '',
@@ -64,16 +78,49 @@ function rowToSourceKey(row: NormalizedRow): string {
 }
 
 function normalizeRow(row: CsvRow): NormalizedRow {
+  const shortResponseUrl = cleanValue(
+    readColumn(row, ['Short response URL', 'Short Response URL']),
+  );
+  const shortResponseLength = cleanValue(
+    readColumn(row, ['Short response Length', 'Short response length']),
+  );
+  const shortResponseAuthor = cleanValue(
+    readColumn(row, ['Short response Author', 'Short response author']),
+  );
+  const longResponseUrl = cleanValue(
+    readColumn(row, ['Response in long video', 'Long response URL']),
+  );
+  const longResponseLength = cleanValue(
+    readColumn(row, ['Response in long video length', 'Long response length']),
+  );
+  const debateUrl = cleanValue(
+    readColumn(row, ['Debate on topic', 'Debate URL']),
+  );
+  const articleUrl = cleanValue(
+    readColumn(row, ['Article discussing topic', 'Article URL']),
+  );
+
+  const legacyVideoLength = cleanValue(readColumn(row, ['Video 1 Length']));
+  const legacyVideoAuthor = cleanValue(readColumn(row, ['Video 1 Author']));
+  const legacyVideoTimestamp = cleanValue(
+    readColumn(row, ['Video 1 timestamp where relevant answer appears in video']),
+  );
+
   return {
-    generalTopic: cleanValue(row['General Topic']),
-    subtopic: cleanValue(row.Subtopic),
-    charge: cleanValue(row.Charge),
-    shortResponseUrl: cleanValue(row['Short response URL']),
-    video1Length: cleanValue(row['Video 1 Length']),
-    video1Author: cleanValue(row['Video 1 Author']),
-    video1Timestamp: cleanValue(
-      row['Video 1 timestamp where relevant answer appears in video'],
-    ),
+    // Some CSV exports leave the first column header blank.
+    generalTopic: cleanValue(readColumn(row, ['General Topic', 'Topic', ''])),
+    subtopic: cleanValue(readColumn(row, ['Subtopic'])),
+    charge: cleanValue(readColumn(row, ['Charge'])),
+    shortResponseUrl,
+    shortResponseLength,
+    shortResponseAuthor,
+    longResponseUrl,
+    longResponseLength,
+    debateUrl,
+    articleUrl,
+    video1Length: legacyVideoLength ?? longResponseLength,
+    video1Author: legacyVideoAuthor,
+    video1Timestamp: legacyVideoTimestamp,
   };
 }
 
@@ -83,6 +130,12 @@ function isCompletelyEmpty(row: NormalizedRow): boolean {
     !row.subtopic &&
     !row.charge &&
     !row.shortResponseUrl &&
+    !row.shortResponseLength &&
+    !row.shortResponseAuthor &&
+    !row.longResponseUrl &&
+    !row.longResponseLength &&
+    !row.debateUrl &&
+    !row.articleUrl &&
     !row.video1Length &&
     !row.video1Author &&
     !row.video1Timestamp
@@ -109,7 +162,10 @@ async function main() {
       continue;
     }
 
-    if (!isValidUrl(normalized.shortResponseUrl)) {
+    if (
+      !isValidUrl(normalized.shortResponseUrl) ||
+      !isValidUrl(normalized.longResponseUrl)
+    ) {
       skippedInvalid += 1;
       continue;
     }
@@ -124,6 +180,12 @@ async function main() {
           subtopic: normalized.subtopic,
           charge: normalized.charge,
           shortResponseUrl: normalized.shortResponseUrl,
+          shortResponseLength: normalized.shortResponseLength,
+          shortResponseAuthor: normalized.shortResponseAuthor,
+          longResponseUrl: normalized.longResponseUrl,
+          longResponseLength: normalized.longResponseLength,
+          debateUrl: normalized.debateUrl,
+          articleUrl: normalized.articleUrl,
           video1Length: normalized.video1Length,
           video1Author: normalized.video1Author,
           video1Timestamp: normalized.video1Timestamp,
@@ -134,6 +196,12 @@ async function main() {
           subtopic: normalized.subtopic,
           charge: normalized.charge,
           shortResponseUrl: normalized.shortResponseUrl,
+          shortResponseLength: normalized.shortResponseLength,
+          shortResponseAuthor: normalized.shortResponseAuthor,
+          longResponseUrl: normalized.longResponseUrl,
+          longResponseLength: normalized.longResponseLength,
+          debateUrl: normalized.debateUrl,
+          articleUrl: normalized.articleUrl,
           video1Length: normalized.video1Length,
           video1Author: normalized.video1Author,
           video1Timestamp: normalized.video1Timestamp,

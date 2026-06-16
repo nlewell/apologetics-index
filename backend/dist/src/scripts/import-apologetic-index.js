@@ -15,6 +15,14 @@ function cleanValue(value) {
     const trimmed = (value ?? '').trim();
     return trimmed.length > 0 ? trimmed : null;
 }
+function readColumn(row, keys) {
+    for (const key of keys) {
+        if (typeof row[key] === 'string') {
+            return row[key];
+        }
+    }
+    return undefined;
+}
 function isValidUrl(value) {
     if (!value) {
         return true;
@@ -33,6 +41,12 @@ function rowToSourceKey(row) {
         row.subtopic ?? '',
         row.charge ?? '',
         row.shortResponseUrl ?? '',
+        row.shortResponseLength ?? '',
+        row.shortResponseAuthor ?? '',
+        row.longResponseUrl ?? '',
+        row.longResponseLength ?? '',
+        row.debateUrl ?? '',
+        row.articleUrl ?? '',
         row.video1Length ?? '',
         row.video1Author ?? '',
         row.video1Timestamp ?? '',
@@ -42,14 +56,30 @@ function rowToSourceKey(row) {
     return (0, node_crypto_1.createHash)('sha256').update(key).digest('hex');
 }
 function normalizeRow(row) {
+    const shortResponseUrl = cleanValue(readColumn(row, ['Short response URL', 'Short Response URL']));
+    const shortResponseLength = cleanValue(readColumn(row, ['Short response Length', 'Short response length']));
+    const shortResponseAuthor = cleanValue(readColumn(row, ['Short response Author', 'Short response author']));
+    const longResponseUrl = cleanValue(readColumn(row, ['Response in long video', 'Long response URL']));
+    const longResponseLength = cleanValue(readColumn(row, ['Response in long video length', 'Long response length']));
+    const debateUrl = cleanValue(readColumn(row, ['Debate on topic', 'Debate URL']));
+    const articleUrl = cleanValue(readColumn(row, ['Article discussing topic', 'Article URL']));
+    const legacyVideoLength = cleanValue(readColumn(row, ['Video 1 Length']));
+    const legacyVideoAuthor = cleanValue(readColumn(row, ['Video 1 Author']));
+    const legacyVideoTimestamp = cleanValue(readColumn(row, ['Video 1 timestamp where relevant answer appears in video']));
     return {
-        generalTopic: cleanValue(row['General Topic']),
-        subtopic: cleanValue(row.Subtopic),
-        charge: cleanValue(row.Charge),
-        shortResponseUrl: cleanValue(row['Short response URL']),
-        video1Length: cleanValue(row['Video 1 Length']),
-        video1Author: cleanValue(row['Video 1 Author']),
-        video1Timestamp: cleanValue(row['Video 1 timestamp where relevant answer appears in video']),
+        generalTopic: cleanValue(readColumn(row, ['General Topic', 'Topic', ''])),
+        subtopic: cleanValue(readColumn(row, ['Subtopic'])),
+        charge: cleanValue(readColumn(row, ['Charge'])),
+        shortResponseUrl,
+        shortResponseLength,
+        shortResponseAuthor,
+        longResponseUrl,
+        longResponseLength,
+        debateUrl,
+        articleUrl,
+        video1Length: legacyVideoLength ?? longResponseLength,
+        video1Author: legacyVideoAuthor,
+        video1Timestamp: legacyVideoTimestamp,
     };
 }
 function isCompletelyEmpty(row) {
@@ -57,6 +87,12 @@ function isCompletelyEmpty(row) {
         !row.subtopic &&
         !row.charge &&
         !row.shortResponseUrl &&
+        !row.shortResponseLength &&
+        !row.shortResponseAuthor &&
+        !row.longResponseUrl &&
+        !row.longResponseLength &&
+        !row.debateUrl &&
+        !row.articleUrl &&
         !row.video1Length &&
         !row.video1Author &&
         !row.video1Timestamp);
@@ -77,7 +113,8 @@ async function main() {
             skippedEmpty += 1;
             continue;
         }
-        if (!isValidUrl(normalized.shortResponseUrl)) {
+        if (!isValidUrl(normalized.shortResponseUrl) ||
+            !isValidUrl(normalized.longResponseUrl)) {
             skippedInvalid += 1;
             continue;
         }
@@ -90,6 +127,12 @@ async function main() {
                     subtopic: normalized.subtopic,
                     charge: normalized.charge,
                     shortResponseUrl: normalized.shortResponseUrl,
+                    shortResponseLength: normalized.shortResponseLength,
+                    shortResponseAuthor: normalized.shortResponseAuthor,
+                    longResponseUrl: normalized.longResponseUrl,
+                    longResponseLength: normalized.longResponseLength,
+                    debateUrl: normalized.debateUrl,
+                    articleUrl: normalized.articleUrl,
                     video1Length: normalized.video1Length,
                     video1Author: normalized.video1Author,
                     video1Timestamp: normalized.video1Timestamp,
@@ -100,6 +143,12 @@ async function main() {
                     subtopic: normalized.subtopic,
                     charge: normalized.charge,
                     shortResponseUrl: normalized.shortResponseUrl,
+                    shortResponseLength: normalized.shortResponseLength,
+                    shortResponseAuthor: normalized.shortResponseAuthor,
+                    longResponseUrl: normalized.longResponseUrl,
+                    longResponseLength: normalized.longResponseLength,
+                    debateUrl: normalized.debateUrl,
+                    articleUrl: normalized.articleUrl,
                     video1Length: normalized.video1Length,
                     video1Author: normalized.video1Author,
                     video1Timestamp: normalized.video1Timestamp,

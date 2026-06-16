@@ -13,15 +13,21 @@ datasource db {
 }
 
 model ApologeticIndexItem {
-  id               Int      @id @default(autoincrement())
-  sourceKey        String   @unique
-  generalTopic     String?
-  subtopic         String?
-  charge           String?
-  shortResponseUrl String?
-  video1Length     String?
-  video1Author     String?
-  video1Timestamp  String?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  id                  Int      @id @default(autoincrement())
+  sourceKey           String   @unique
+  generalTopic        String?
+  subtopic            String?
+  charge              String?
+  shortResponseUrl    String?
+  shortResponseLength String?
+  shortResponseAuthor String?
+  longResponseUrl     String?
+  longResponseLength  String?
+  debateUrl           String?
+  articleUrl          String?
+  video1Length        String?
+  video1Author        String?
+  video1Timestamp     String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 }

@@ -27,6 +27,12 @@ export declare class IndexItemsService {
             subtopic: string | null;
             charge: string | null;
             shortResponseUrl: string | null;
+            shortResponseLength: string | null;
+            shortResponseAuthor: string | null;
+            longResponseUrl: string | null;
+            longResponseLength: string | null;
+            debateUrl: string | null;
+            articleUrl: string | null;
             video1Length: string | null;
             video1Author: string | null;
             video1Timestamp: string | null;

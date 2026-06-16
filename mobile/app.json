@@ -1,9 +1,9 @@
 {
   "expo": {
-    "name": "Clarifying Faith and Reason",
+    "name": "Clarify Faith",
     "slug": "clarifying-faith-and-reason",
     "scheme": "clarifyingfaithandreason",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -21,11 +21,12 @@
       "package": "com.clarifyingfaithandreason.mobile",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#0d274d"
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "versionCode": 1
+      "versionCode": 2,
+      "usesCleartextTraffic": true
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -35,6 +36,9 @@
         "projectId": "f8613d7b-c3fb-424b-ad8c-4394d03fae42"
       }
     },
-    "owner": "nlewell"
+    "owner": "nlewell",
+    "plugins": [
+      "expo-font"
+    ]
   }
 }

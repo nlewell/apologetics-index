@@ -22,10 +22,19 @@ export const IndexItemDetailScreen: React.FC<IndexItemDetailScreenProps> = ({
 }) => {
   const { item } = route.params;
 
-  const handleOpenUrl = async () => {
-    if (item.shortResponseUrl) {
+  const shortResponseLength = item.shortResponseLength;
+  const shortResponseAuthor = item.shortResponseAuthor;
+  const longResponseUrl = item.longResponseUrl;
+  const longResponseLength = item.longResponseLength ?? item.video1Length;
+  const longResponseTimestamp = item.video1Timestamp;
+
+  const isHttpUrl = (value: string | null) =>
+    Boolean(value && /^https?:\/\//i.test(value));
+
+  const handleOpenUrl = async (url: string | null) => {
+    if (url) {
       try {
-        await Linking.openURL(item.shortResponseUrl);
+        await Linking.openURL(url);
       } catch (error) {
         console.error('Failed to open URL:', error);
       }
@@ -52,39 +61,108 @@ export const IndexItemDetailScreen: React.FC<IndexItemDetailScreenProps> = ({
 
         {item.shortResponseUrl && (
           <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Short Response</Text>
             <TouchableOpacity
               style={styles.urlButton}
-              onPress={handleOpenUrl}
+              onPress={() => handleOpenUrl(item.shortResponseUrl)}
               activeOpacity={0.7}
             >
-              <Text style={styles.urlButtonText}>View Response</Text>
+              <Text style={styles.urlButtonText}>Open Short Response</Text>
             </TouchableOpacity>
+
+            {(shortResponseAuthor || shortResponseLength) && (
+              <View style={styles.videoDetails}>
+                {shortResponseAuthor && (
+                  <DetailRow label="Author" value={shortResponseAuthor} />
+                )}
+                {shortResponseLength && (
+                  <DetailRow label="Length" value={shortResponseLength} />
+                )}
+              </View>
+            )}
+
             <Text style={styles.urlText} numberOfLines={1}>
               {item.shortResponseUrl}
             </Text>
           </View>
         )}
 
-        <View style={styles.videoSection}>
-          <Text style={styles.sectionTitle}>Video Resource</Text>
+        {(longResponseUrl || longResponseLength || longResponseTimestamp) && (
+          <View style={styles.videoSection}>
+            <Text style={styles.sectionTitle}>Long Video Response</Text>
 
-          {item.video1Author ? (
+            {longResponseUrl && (
+              <TouchableOpacity
+                style={styles.urlButton}
+                onPress={() => handleOpenUrl(longResponseUrl)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.urlButtonText}>Open Long Video</Text>
+              </TouchableOpacity>
+            )}
+
             <View style={styles.videoDetails}>
-              <DetailRow label="Author" value={item.video1Author} />
-              {item.video1Length && (
-                <DetailRow label="Length" value={item.video1Length} />
+              {longResponseLength && (
+                <DetailRow label="Length" value={longResponseLength} />
               )}
-              {item.video1Timestamp && (
-                <DetailRow
-                  label="Timestamp"
-                  value={item.video1Timestamp}
-                />
+              {longResponseTimestamp && (
+                <DetailRow label="Timestamp" value={longResponseTimestamp} />
               )}
             </View>
-          ) : (
-            <Text style={styles.noDataText}>No video information available</Text>
+
+            {longResponseUrl && (
+              <Text style={styles.urlText} numberOfLines={1}>
+                {longResponseUrl}
+              </Text>
+            )}
+          </View>
+        )}
+
+        {item.debateUrl && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Debate</Text>
+            {isHttpUrl(item.debateUrl) ? (
+              <TouchableOpacity
+                style={styles.urlButton}
+                onPress={() => handleOpenUrl(item.debateUrl)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.urlButtonText}>Open Debate Link</Text>
+              </TouchableOpacity>
+            ) : null}
+            <Text style={styles.urlText} numberOfLines={1}>
+              {item.debateUrl}
+            </Text>
+          </View>
+        )}
+
+        {item.articleUrl && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Article</Text>
+            {isHttpUrl(item.articleUrl) ? (
+              <TouchableOpacity
+                style={styles.urlButton}
+                onPress={() => handleOpenUrl(item.articleUrl)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.urlButtonText}>Open Article</Text>
+              </TouchableOpacity>
+            ) : null}
+            <Text style={styles.urlText} numberOfLines={1}>
+              {item.articleUrl}
+            </Text>
+          </View>
+        )}
+
+        {!item.shortResponseUrl &&
+          !longResponseUrl &&
+          !item.debateUrl &&
+          !item.articleUrl && (
+            <View style={styles.videoSection}>
+              <Text style={styles.sectionTitle}>Resources</Text>
+              <Text style={styles.noDataText}>No links available for this item</Text>
+            </View>
           )}
-        </View>
 
         <View style={styles.metadataSection}>
           <Text style={styles.metadataLabel}>Added</Text>

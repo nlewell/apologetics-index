@@ -15,6 +15,7 @@ import { IndexItemCard } from '../components/IndexItemCard';
 import { RootStackParamList } from '../types/navigation';
 import { IndexItem } from '../types';
 import { useSyncStatus } from '../hooks/useSyncStatus';
+import { formatApiError } from '../lib/formatApiError';
 
 type SearchScreenProps = NativeStackScreenProps<RootStackParamList, 'Search'>;
 
@@ -32,7 +33,7 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ navigation }) => {
     });
   }, [hasNewContent, navigation]);
 
-  const { data, isLoading } = useIndexItems({
+  const { data, isLoading, isError, error, refetch } = useIndexItems({
     page,
     limit: 50,
     q: debouncedQuery || undefined,
@@ -86,6 +87,14 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ navigation }) => {
       {isLoading && !data ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#3b82f6" />
+        </View>
+      ) : isError ? (
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorText}>Error loading search results</Text>
+          <Text style={styles.errorDetail}>{formatApiError(error)}</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={() => refetch()}>
+            <Text style={styles.retryButtonText}>Retry</Text>
+          </TouchableOpacity>
         </View>
       ) : (
         <FlatList
@@ -161,6 +170,37 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    gap: 10,
+  },
+  errorText: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#dc2626',
+    textAlign: 'center',
+  },
+  errorDetail: {
+    fontSize: 13,
+    color: '#7f1d1d',
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+  retryButton: {
+    marginTop: 4,
+    backgroundColor: '#2563eb',
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+    borderRadius: 6,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '700',
   },
   emptyContainer: {
     flex: 1,

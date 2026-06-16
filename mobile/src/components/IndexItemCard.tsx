@@ -20,6 +20,11 @@ export const IndexItemCard: React.FC<IndexItemCardProps> = ({
   onPress,
   showNewBadge = false,
 }) => {
+  const hasShort = Boolean(item.shortResponseUrl);
+  const hasLong = Boolean(item.longResponseUrl || item.video1Timestamp);
+  const hasDebate = Boolean(item.debateUrl);
+  const hasArticle = Boolean(item.articleUrl);
+
   return (
     <TouchableOpacity style={styles.card} onPress={onPress}>
       <View style={styles.cardContent}>
@@ -43,10 +48,30 @@ export const IndexItemCard: React.FC<IndexItemCardProps> = ({
             {item.charge}
           </Text>
         )}
+
+        {(hasShort || hasLong || hasDebate || hasArticle) && (
+          <View style={styles.resourceRow}>
+            {hasShort && <Tag text="Short" style={styles.tagBlue} />}
+            {hasLong && <Tag text="Long" style={styles.tagPurple} />}
+            {hasDebate && <Tag text="Debate" style={styles.tagAmber} />}
+            {hasArticle && <Tag text="Article" style={styles.tagGreen} />}
+          </View>
+        )}
       </View>
     </TouchableOpacity>
   );
 };
+
+type TagProps = {
+  text: string;
+  style: object;
+};
+
+const Tag: React.FC<TagProps> = ({ text, style }) => (
+  <View style={[styles.tag, style]}>
+    <Text style={styles.tagText}>{text}</Text>
+  </View>
+);
 
 const styles = StyleSheet.create({
   card: {
@@ -99,5 +124,34 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#9ca3af',
     fontStyle: 'italic',
+  },
+  resourceRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 2,
+  },
+  tag: {
+    borderRadius: 999,
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+  },
+  tagText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#111827',
+    letterSpacing: 0.2,
+  },
+  tagBlue: {
+    backgroundColor: '#dbeafe',
+  },
+  tagPurple: {
+    backgroundColor: '#ede9fe',
+  },
+  tagAmber: {
+    backgroundColor: '#fef3c7',
+  },
+  tagGreen: {
+    backgroundColor: '#dcfce7',
   },
 });
