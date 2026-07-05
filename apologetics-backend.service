@@ -1,0 +1,15 @@
+[Unit]
+Description=Apologetics Index Backend
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/apologetics-index/backend
+ExecStart=/home/ubuntu/apologetics-index/scripts/start-prod.sh
+Restart=always
+RestartSec=10
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target
