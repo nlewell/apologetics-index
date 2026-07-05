@@ -31,3 +31,11 @@ model ApologeticIndexItem {
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 }
+
+model YoutubeSearchCache {
+  id        Int      @id @default(autoincrement())
+  query     String   @unique
+  items     Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

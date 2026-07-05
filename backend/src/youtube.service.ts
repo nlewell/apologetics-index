@@ -6,6 +6,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { promises as fs } from 'node:fs';
 import { resolve } from 'node:path';
+import { PrismaService } from './prisma.service';
 
 type YoutubeSearchItem = {
   id?: {
@@ -84,7 +85,12 @@ export class YoutubeService {
 
   private readonly shortsMaxSeconds: number;
 
-  constructor(private readonly configService: ConfigService) {
+  private readonly cacheTtlMs = 24 * 60 * 60 * 1000;
+
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly prismaService: PrismaService,
+  ) {
     this.shortsMaxSeconds = this.getShortsMaxSeconds();
   }
 
@@ -93,6 +99,29 @@ export class YoutubeService {
     maxResults = 5,
     debug = false,
   ): Promise<YoutubeSearchResponse> {
+    const normalizedQuery = query.trim();
+
+    if (!normalizedQuery) {
+      return {
+        query: normalizedQuery,
+        maxResults,
+        whitelist: {
+          sourceFile: this.whitelistPath,
+          configuredEntries: [],
+          resolvedChannelIds: [],
+        },
+        items: [],
+      };
+    }
+
+    const cachedResponse = await this.getCachedSearchResponse(normalizedQuery);
+    if (cachedResponse) {
+      return {
+        ...cachedResponse,
+        maxResults,
+      };
+    }
+
     const apiKey = this.configService.get<string>('YOUTUBE_API_KEY');
 
     if (!apiKey) {
@@ -165,7 +194,7 @@ export class YoutubeService {
     const isDebugEnabled = debug && this.environment !== 'production';
 
     const response: YoutubeSearchResponse = {
-      query,
+      query: normalizedQuery,
       maxResults,
       whitelist: {
         sourceFile: this.whitelistPath,
@@ -174,6 +203,8 @@ export class YoutubeService {
       },
       items,
     };
+
+    await this.saveSearchResponse(normalizedQuery, response);
 
     if (isDebugEnabled) {
       response.debug = {
@@ -191,6 +222,69 @@ export class YoutubeService {
     }
 
     return response;
+  }
+
+  private async getCachedSearchResponse(
+    query: string,
+  ): Promise<YoutubeSearchResponse | null> {
+    const cachedEntry = await this.prismaService.youtubeSearchCache.findFirst({
+      where: { query },
+    });
+
+    if (!cachedEntry) {
+      return null;
+    }
+
+    const ageMs = Date.now() - new Date(cachedEntry.updatedAt).getTime();
+    if (ageMs > this.cacheTtlMs) {
+      return null;
+    }
+
+    const parsedItems = Array.isArray(cachedEntry.items)
+      ? (cachedEntry.items as Array<YoutubeSearchResult>)
+      : [];
+
+    return {
+      query: cachedEntry.query,
+      maxResults: parsedItems.length,
+      whitelist: {
+        sourceFile: this.whitelistPath,
+        configuredEntries: [],
+        resolvedChannelIds: [],
+      },
+      items: parsedItems,
+    };
+  }
+
+  private async saveSearchResponse(
+    query: string,
+    response: YoutubeSearchResponse,
+  ): Promise<void> {
+    const itemsToStore = response.items.slice(0, 5).map((item) => ({
+      videoId: item.videoId,
+      title: item.title,
+      description: item.description,
+      channelTitle: item.channelTitle,
+      channelId: item.channelId,
+      publishedAt: item.publishedAt,
+      thumbnailUrl: item.thumbnailUrl,
+      videoUrl: item.videoUrl,
+      duration: item.duration,
+      durationSeconds: item.durationSeconds,
+      isShort: item.isShort,
+    }));
+
+    await this.prismaService.youtubeSearchCache.upsert({
+      where: { query },
+      update: {
+        items: itemsToStore,
+        updatedAt: new Date(),
+      },
+      create: {
+        query,
+        items: itemsToStore,
+      },
+    });
   }
 
   private async searchWithinChannel(
