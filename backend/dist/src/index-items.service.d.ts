@@ -6,9 +6,19 @@ export type ListIndexItemsInput = {
     subtopic?: string;
     q?: string;
 };
+export type TopicWithSubtopics = {
+    topic: string;
+    charges: string[];
+    subtopics: TopicWithCharges[];
+};
+export type TopicWithCharges = {
+    subtopic: string;
+    charges: string[];
+};
 export declare class IndexItemsService {
     private readonly prisma;
     constructor(prisma: PrismaService);
+    listTopicsWithSubtopics(): Promise<TopicWithSubtopics[]>;
     listTopicCounts(): Promise<{
         topic: string;
         count: number;

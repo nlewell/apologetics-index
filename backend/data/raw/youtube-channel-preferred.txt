@@ -1,0 +1,7 @@
+# Preferred channels get a relevance score bonus when ranking results.
+# Use one channel handle or channel ID per line.
+# - @handle
+# - UCxxxxxxxxxxxxxxxxxxxxxx
+
+# Example:
+# @churchhistorymatterspodcast

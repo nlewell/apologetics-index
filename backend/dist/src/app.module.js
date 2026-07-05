@@ -18,18 +18,26 @@ const index_items_service_1 = require("./index-items.service");
 const content_version_controller_1 = require("./content-version.controller");
 const content_version_service_1 = require("./content-version.service");
 const api_key_guard_1 = require("./api-key.guard");
+const youtube_controller_1 = require("./youtube.controller");
+const youtube_service_1 = require("./youtube.service");
 let AppModule = class AppModule {
 };
 exports.AppModule = AppModule;
 exports.AppModule = AppModule = __decorate([
     (0, common_1.Module)({
         imports: [config_1.ConfigModule.forRoot({ isGlobal: true })],
-        controllers: [app_controller_1.AppController, index_items_controller_1.IndexItemsController, content_version_controller_1.ContentVersionController],
+        controllers: [
+            app_controller_1.AppController,
+            index_items_controller_1.IndexItemsController,
+            content_version_controller_1.ContentVersionController,
+            youtube_controller_1.YoutubeController,
+        ],
         providers: [
             app_service_1.AppService,
             prisma_service_1.PrismaService,
             index_items_service_1.IndexItemsService,
             content_version_service_1.ContentVersionService,
+            youtube_service_1.YoutubeService,
             {
                 provide: core_1.APP_GUARD,
                 useClass: api_key_guard_1.ApiKeyGuard,

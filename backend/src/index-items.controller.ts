@@ -39,6 +39,11 @@ export class IndexItemsController {
     return this.indexItemsService.listTopicCounts();
   }
 
+  @Get('topics-with-subtopics')
+  listTopicsWithSubtopics() {
+    return this.indexItemsService.listTopicsWithSubtopics();
+  }
+
   @Get()
   list(@Query() query: ListIndexItemsQueryDto) {
     return this.indexItemsService.list({

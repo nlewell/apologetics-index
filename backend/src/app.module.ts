@@ -9,15 +9,23 @@ import { IndexItemsService } from './index-items.service';
 import { ContentVersionController } from './content-version.controller';
 import { ContentVersionService } from './content-version.service';
 import { ApiKeyGuard } from './api-key.guard';
+import { YoutubeController } from './youtube.controller';
+import { YoutubeService } from './youtube.service';
 
 @Module({
   imports: [ConfigModule.forRoot({ isGlobal: true })],
-  controllers: [AppController, IndexItemsController, ContentVersionController],
+  controllers: [
+    AppController,
+    IndexItemsController,
+    ContentVersionController,
+    YoutubeController,
+  ],
   providers: [
     AppService,
     PrismaService,
     IndexItemsService,
     ContentVersionService,
+    YoutubeService,
     {
       provide: APP_GUARD,
       useClass: ApiKeyGuard,

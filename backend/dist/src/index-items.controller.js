@@ -62,6 +62,9 @@ let IndexItemsController = class IndexItemsController {
     listTopics() {
         return this.indexItemsService.listTopicCounts();
     }
+    listTopicsWithSubtopics() {
+        return this.indexItemsService.listTopicsWithSubtopics();
+    }
     list(query) {
         return this.indexItemsService.list({
             page: query.page ?? 1,
@@ -79,6 +82,12 @@ __decorate([
     __metadata("design:paramtypes", []),
     __metadata("design:returntype", void 0)
 ], IndexItemsController.prototype, "listTopics", null);
+__decorate([
+    (0, common_1.Get)('topics-with-subtopics'),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", void 0)
+], IndexItemsController.prototype, "listTopicsWithSubtopics", null);
 __decorate([
     (0, common_1.Get)(),
     __param(0, (0, common_1.Query)()),

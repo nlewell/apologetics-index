@@ -17,6 +17,29 @@ cd /home/newell/workspace/apologetics-index/mobile
 npm install
 ```
 
+## Configure API Target
+
+The app now supports local vs remote backend switching via `.env`.
+
+```bash
+cd /home/newell/workspace/apologetics-index/mobile
+```
+
+Set these in `mobile/.env`:
+
+```bash
+EXPO_PUBLIC_API_TARGET=local
+EXPO_PUBLIC_API_LOCAL_URL=http://localhost:3000/api
+EXPO_PUBLIC_API_REMOTE_URL=https://3.22.98.75.nip.io/api
+```
+
+Use:
+
+- `EXPO_PUBLIC_API_TARGET=local` to test against localhost
+- `EXPO_PUBLIC_API_TARGET=remote` to test against deployed backend
+
+If running on a physical device, replace localhost with your machine LAN IP.
+
 ## Run the App
 
 ```bash

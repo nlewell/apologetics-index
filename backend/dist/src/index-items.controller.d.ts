@@ -13,6 +13,7 @@ export declare class IndexItemsController {
         topic: string;
         count: number;
     }[]>;
+    listTopicsWithSubtopics(): Promise<import("./index-items.service").TopicWithSubtopics[]>;
     list(query: ListIndexItemsQueryDto): Promise<{
         meta: {
             page: number;

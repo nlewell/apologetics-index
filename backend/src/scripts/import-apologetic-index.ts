@@ -148,6 +148,7 @@ async function main() {
     columns: true,
     skip_empty_lines: false,
     trim: true,
+    relax_column_count: true,
   }) as CsvRow[];
 
   let skippedEmpty = 0;

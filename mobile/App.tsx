@@ -7,7 +7,6 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { StatusBar } from 'expo-status-bar';
 
-import { HomeScreen } from './src/screens/HomeScreen';
 import { IndexItemsScreen } from './src/screens/IndexItemsScreen';
 import { IndexItemDetailScreen } from './src/screens/IndexItemDetailScreen';
 import { SearchScreen } from './src/screens/SearchScreen';
@@ -39,6 +38,7 @@ export default function App() {
     >
       <NavigationContainer>
         <Stack.Navigator
+          initialRouteName="Search"
           screenOptions={{
             headerShown: true,
             headerStyle: {
@@ -50,13 +50,6 @@ export default function App() {
             },
           }}
         >
-          <Stack.Screen
-            name="Home"
-            component={HomeScreen}
-            options={{
-              headerShown: false,
-            }}
-          />
           <Stack.Screen
             name="IndexItems"
             component={IndexItemsScreen}
@@ -76,7 +69,7 @@ export default function App() {
             name="Search"
             component={SearchScreen}
             options={{
-              title: 'Search',
+              headerShown: false,
             }}
           />
         </Stack.Navigator>

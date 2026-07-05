@@ -17,6 +17,57 @@ let IndexItemsService = class IndexItemsService {
     constructor(prisma) {
         this.prisma = prisma;
     }
+    async listTopicsWithSubtopics() {
+        const rows = await this.prisma.apologeticIndexItem.findMany({
+            where: {
+                generalTopic: {
+                    not: null,
+                },
+            },
+            select: {
+                generalTopic: true,
+                subtopic: true,
+                charge: true,
+            },
+        });
+        const byTopic = new Map();
+        for (const row of rows) {
+            const topic = (row.generalTopic ?? '').trim();
+            if (!topic) {
+                continue;
+            }
+            const accumulator = byTopic.get(topic) ?? {
+                topic,
+                charges: new Set(),
+                subtopics: new Map(),
+            };
+            const subtopic = (row.subtopic ?? '').trim();
+            const charge = (row.charge ?? '').trim();
+            if (subtopic) {
+                const charges = accumulator.subtopics.get(subtopic) ?? new Set();
+                if (charge) {
+                    charges.add(charge);
+                }
+                accumulator.subtopics.set(subtopic, charges);
+            }
+            else if (charge) {
+                accumulator.charges.add(charge);
+            }
+            byTopic.set(topic, accumulator);
+        }
+        return Array.from(byTopic.entries())
+            .map(([, data]) => ({
+            topic: data.topic,
+            charges: Array.from(data.charges).sort((a, b) => a.localeCompare(b)),
+            subtopics: Array.from(data.subtopics.entries())
+                .map(([subtopic, charges]) => ({
+                subtopic,
+                charges: Array.from(charges).sort((a, b) => a.localeCompare(b)),
+            }))
+                .sort((a, b) => a.subtopic.localeCompare(b.subtopic)),
+        }))
+            .sort((a, b) => a.topic.localeCompare(b.topic));
+    }
     async listTopicCounts() {
         const grouped = await this.prisma.apologeticIndexItem.groupBy({
             by: ['generalTopic'],

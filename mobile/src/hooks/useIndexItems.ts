@@ -4,6 +4,7 @@ import {
   IndexItemsResponse,
   ListIndexItemsParams,
   TopicCount,
+  TopicWithSubtopics,
 } from '../types';
 import { apiClient } from '../lib/apiClient';
 
@@ -38,6 +39,20 @@ export const useIndexItemsTopics = () => {
     },
     staleTime: 10 * 60 * 1000, // 10 minutes
     gcTime: 20 * 60 * 1000, // 20 minutes
+  });
+};
+
+export const useIndexItemsTopicsWithSubtopics = () => {
+  return useQuery({
+    queryKey: ['indexItemsTopicsWithSubtopics'],
+    queryFn: async (): Promise<TopicWithSubtopics[]> => {
+      const response = await apiClient.get<TopicWithSubtopics[]>(
+        '/index-items/topics-with-subtopics',
+      );
+      return response.data;
+    },
+    staleTime: 10 * 60 * 1000,
+    gcTime: 20 * 60 * 1000,
   });
 };
 

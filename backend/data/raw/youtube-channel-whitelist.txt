@@ -1,0 +1,36 @@
+# One approved YouTube channel handle or channel ID per line.
+# You can use either of these formats:
+# - @handle (recommended)
+# - UCxxxxxxxxxxxxxxxxxxxxxx (channel ID)
+
+@jasminrappshow
+@AllThoseInFavor
+@churchhistorymatterspodcast
+@SaintsUnscripted
+@thoughtfulfaith2020
+@InformedSaintsPod
+@DiscovertheBookofMormon
+@DoctrineAndGovernance
+@WARDRADIO
+@TheHolyRebellion
+@Unshaken
+@thestickofjoseph
+@EthersElephant
+@brother_colton
+@maklelan
+@covenantorigins
+@LatterDailySaints
+@sitdownwithsky
+@keystonelds
+@LetsGetRealSJ
+@mormonismwiththemurph
+@themormonr
+@MoronisStandard
+@Rise_Zion
+@ScripturalMormonism
+@RESTORED_TRUTH
+@SaintExplainer
+@scripturecentralofficial
+@Sword-and-Spirit-Podcast
+@WardRadioWomen
+@WhatBibleSay

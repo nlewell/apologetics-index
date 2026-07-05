@@ -96,3 +96,71 @@ Nest is an MIT-licensed open source project. It can grow thanks to the sponsors 
 ## License
 
 Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+
+## YouTube API
+
+This backend includes a whitelist-filtered YouTube search endpoint:
+
+```bash
+GET /api/youtube/search?q=your+query&maxResults=5
+```
+
+Optional debug mode (non-production only):
+
+```bash
+GET /api/youtube/search?q=your+query&maxResults=5&debug=true
+```
+
+When enabled outside production, response includes `debug.scores` so you can see
+ranked relevance scores and preferred-channel boost application per video.
+
+Add this environment variable to `backend/.env`:
+
+```bash
+YOUTUBE_API_KEY="your-youtube-data-api-key"
+```
+
+Optional environment variable:
+
+```bash
+YOUTUBE_CHANNEL_WHITELIST_FILE="/absolute/path/to/youtube-channel-whitelist.txt"
+```
+
+Optional preferred-channel boost variables:
+
+```bash
+YOUTUBE_CHANNEL_PREFERRED_FILE="/absolute/path/to/youtube-channel-preferred.txt"
+YOUTUBE_CHANNEL_PREFERRED_BONUS="35"
+```
+
+If `YOUTUBE_CHANNEL_WHITELIST_FILE` is not provided, the service reads:
+
+```bash
+backend/data/raw/youtube-channel-whitelist.txt
+```
+
+Whitelist file format:
+
+```txt
+# One per line
+@channelHandle
+UCxxxxxxxxxxxxxxxxxxxxxx
+```
+
+Preferred file format (same entry format as whitelist):
+
+```txt
+# One per line
+@channelHandle
+UCxxxxxxxxxxxxxxxxxxxxxx
+```
+
+Preferred channels receive a score bonus during ranking, helping trusted channels
+appear nearer the top when relevance is otherwise close.
+
+Example call:
+
+```bash
+curl -H "x-api-key: YOUR_APP_API_KEY" \
+  "http://localhost:3000/api/youtube/search?q=book%20of%20mormon&maxResults=5"
+```

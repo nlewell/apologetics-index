@@ -46,3 +46,51 @@ export interface TopicCount {
   topic: string;
   count: number;
 }
+
+export interface SubtopicWithCharges {
+  subtopic: string;
+  charges: string[];
+}
+
+export interface TopicWithSubtopics {
+  topic: string;
+  charges: string[];
+  subtopics: SubtopicWithCharges[];
+}
+
+export interface YoutubeSearchItem {
+  videoId: string;
+  title: string;
+  description: string;
+  channelTitle: string;
+  channelId: string;
+  publishedAt: string;
+  thumbnailUrl: string | null;
+  videoUrl: string;
+  duration: string;
+  durationSeconds: number;
+  isShort: boolean;
+}
+
+export interface YoutubeSearchResponse {
+  query: string;
+  maxResults: number;
+  whitelist: {
+    sourceFile: string;
+    configuredEntries: string[];
+    resolvedChannelIds: string[];
+  };
+  items: YoutubeSearchItem[];
+  debug?: {
+    enabled: boolean;
+    environment: string;
+    preferredChannelBonus: number;
+    scores: Array<{
+      videoId: string;
+      title: string;
+      channelTitle: string;
+      relevanceScore: number;
+      preferredBoostApplied: boolean;
+    }>;
+  };
+}

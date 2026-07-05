@@ -103,6 +103,7 @@ async function main() {
         columns: true,
         skip_empty_lines: false,
         trim: true,
+        relax_column_count: true,
     });
     let skippedEmpty = 0;
     let skippedInvalid = 0;
