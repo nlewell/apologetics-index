@@ -39,3 +39,24 @@ model YoutubeSearchCache {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+model YoutubeChannelCache {
+  id        Int      @id @default(autoincrement())
+  handle    String   @unique
+  channelId String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model YoutubeChannelSearchCache {
+  id        Int      @id @default(autoincrement())
+  query     String
+  channelId String
+  items     Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([query, channelId])
+  @@index([query])
+  @@index([channelId])
+}

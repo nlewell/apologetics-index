@@ -81,11 +81,12 @@ type ScoredYoutubeSearchResult = YoutubeSearchResult & {
 
 @Injectable()
 export class YoutubeService {
-  private readonly channelIdCache = new Map<string, string>();
+  private readonly memoryChannelIdCache = new Map<string, string>();
 
   private readonly shortsMaxSeconds: number;
 
-  private readonly cacheTtlMs = 24 * 60 * 60 * 1000;
+  // Cache for 7 days to reduce quota usage significantly
+  private readonly cacheTtlMs = 7 * 24 * 60 * 60 * 1000;
 
   constructor(
     private readonly configService: ConfigService,
@@ -293,6 +294,12 @@ export class YoutubeService {
     maxResults: number,
     apiKey: string,
   ): Promise<ScoredYoutubeSearchResult[]> {
+    // Check per-channel cache first - this avoids API calls for repeated searches
+    const cachedChannelSearch = await this.getCachedChannelSearch(query, channelId);
+    if (cachedChannelSearch.length > 0) {
+      return cachedChannelSearch;
+    }
+
     const url = new URL('https://www.googleapis.com/youtube/v3/search');
     url.searchParams.set('part', 'snippet');
     url.searchParams.set('type', 'video');
@@ -351,7 +358,7 @@ export class YoutubeService {
       apiKey,
     );
 
-    return mappedItems.map((item, index) => {
+    const scoredResults = mappedItems.map((item, index) => {
       const durationRaw = durationByVideoId.get(item.videoId) ?? '';
       const durationSeconds = this.parseIso8601DurationToSeconds(durationRaw);
       const enrichedItem = {
@@ -367,6 +374,67 @@ export class YoutubeService {
         preferredBoostApplied: false,
       };
     });
+
+    // Cache per-channel results to avoid re-fetching on subsequent searches
+    await this.saveChannelSearch(query, channelId, scoredResults).catch(err => {
+      console.warn(`Failed to cache channel search for query "${query}" in channel ${channelId}:`, err);
+    });
+
+    return scoredResults;
+  }
+
+  private async getCachedChannelSearch(
+    query: string,
+    channelId: string,
+  ): Promise<ScoredYoutubeSearchResult[]> {
+    try {
+      const cached = await this.prismaService.youtubeChannelSearchCache.findUnique({
+        where: {
+          query_channelId: { query, channelId },
+        },
+      });
+
+      if (!cached) {
+        return [];
+      }
+
+      const ageMs = Date.now() - new Date(cached.updatedAt).getTime();
+      if (ageMs > this.cacheTtlMs) {
+        return [];
+      }
+
+      return Array.isArray(cached.items)
+        ? (cached.items as ScoredYoutubeSearchResult[])
+        : [];
+    } catch (error) {
+      // Silently fail cache lookups - they're optional optimizations
+      return [];
+    }
+  }
+
+  private async saveChannelSearch(
+    query: string,
+    channelId: string,
+    items: ScoredYoutubeSearchResult[],
+  ): Promise<void> {
+    try {
+      await this.prismaService.youtubeChannelSearchCache.upsert({
+        where: {
+          query_channelId: { query, channelId },
+        },
+        update: {
+          items,
+          updatedAt: new Date(),
+        },
+        create: {
+          query,
+          channelId,
+          items,
+        },
+      });
+    } catch (error) {
+      // Silently fail - cache writes are optional
+    }
   }
 
   private get environment(): string {
@@ -500,11 +568,25 @@ export class YoutubeService {
     }
 
     const cacheKey = handle.toLowerCase();
-    const cached = this.channelIdCache.get(cacheKey);
-    if (cached) {
-      return cached;
+
+    // Check in-memory cache first
+    const memoryCached = this.memoryChannelIdCache.get(cacheKey);
+    if (memoryCached) {
+      return memoryCached;
     }
 
+    // Check database cache (persists across service restarts)
+    const dbCached = await this.prismaService.youtubeChannelCache.findUnique({
+      where: { handle: cacheKey },
+    });
+
+    if (dbCached) {
+      // Restore to memory cache for faster access
+      this.memoryChannelIdCache.set(cacheKey, dbCached.channelId);
+      return dbCached.channelId;
+    }
+
+    // Cache miss - call YouTube API
     const url = new URL('https://www.googleapis.com/youtube/v3/channels');
     url.searchParams.set('part', 'id');
     url.searchParams.set('forHandle', handle);
@@ -526,7 +608,17 @@ export class YoutubeService {
       return null;
     }
 
-    this.channelIdCache.set(cacheKey, channelId);
+    // Cache in both memory and database
+    this.memoryChannelIdCache.set(cacheKey, channelId);
+    await this.prismaService.youtubeChannelCache.upsert({
+      where: { handle: cacheKey },
+      update: { channelId },
+      create: { handle: cacheKey, channelId },
+    }).catch(err => {
+      // Log but don't fail if cache write fails
+      console.warn(`Failed to cache channel ID for ${handle}:`, err);
+    });
+
     return channelId;
   }
 
