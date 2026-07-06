@@ -1,4 +1,5 @@
 import { ConfigService } from '@nestjs/config';
+import { PrismaService } from './prisma.service';
 export type YoutubeSearchResult = {
     videoId: string;
     title: string;
@@ -36,11 +37,17 @@ export type YoutubeSearchResponse = {
 };
 export declare class YoutubeService {
     private readonly configService;
-    private readonly channelIdCache;
+    private readonly prismaService;
+    private readonly memoryChannelIdCache;
     private readonly shortsMaxSeconds;
-    constructor(configService: ConfigService);
+    private readonly cacheTtlMs;
+    constructor(configService: ConfigService, prismaService: PrismaService);
     search(query: string, maxResults?: number, debug?: boolean): Promise<YoutubeSearchResponse>;
+    private getCachedSearchResponse;
+    private saveSearchResponse;
     private searchWithinChannel;
+    private getCachedChannelSearch;
+    private saveChannelSearch;
     private get environment();
     private computeRelevanceScore;
     private normalizeText;

@@ -3,7 +3,7 @@
     "name": "Clarify Faith",
     "slug": "clarifying-faith-and-reason",
     "scheme": "clarifyingfaithandreason",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -18,7 +18,7 @@
         "backgroundColor": "#0d274d"
       },
       "predictiveBackGestureEnabled": false,
-      "versionCode": 2
+      "versionCode": 3
     },
     "web": {
       "favicon": "./assets/favicon.png"

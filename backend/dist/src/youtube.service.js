@@ -14,15 +14,39 @@ const common_1 = require("@nestjs/common");
 const config_1 = require("@nestjs/config");
 const node_fs_1 = require("node:fs");
 const node_path_1 = require("node:path");
+const prisma_service_1 = require("./prisma.service");
 let YoutubeService = class YoutubeService {
     configService;
-    channelIdCache = new Map();
+    prismaService;
+    memoryChannelIdCache = new Map();
     shortsMaxSeconds;
-    constructor(configService) {
+    cacheTtlMs = 7 * 24 * 60 * 60 * 1000;
+    constructor(configService, prismaService) {
         this.configService = configService;
+        this.prismaService = prismaService;
         this.shortsMaxSeconds = this.getShortsMaxSeconds();
     }
     async search(query, maxResults = 5, debug = false) {
+        const normalizedQuery = query.trim();
+        if (!normalizedQuery) {
+            return {
+                query: normalizedQuery,
+                maxResults,
+                whitelist: {
+                    sourceFile: this.whitelistPath,
+                    configuredEntries: [],
+                    resolvedChannelIds: [],
+                },
+                items: [],
+            };
+        }
+        const cachedResponse = await this.getCachedSearchResponse(normalizedQuery);
+        if (cachedResponse) {
+            return {
+                ...cachedResponse,
+                maxResults,
+            };
+        }
         const apiKey = this.configService.get('YOUTUBE_API_KEY');
         if (!apiKey) {
             throw new common_1.ServiceUnavailableException('YOUTUBE_API_KEY is not configured on the server');
@@ -70,7 +94,7 @@ let YoutubeService = class YoutubeService {
         const items = scoredItems.map(({ relevanceScore: _relevanceScore, preferredBoostApplied: _preferredBoostApplied, ...item }) => item);
         const isDebugEnabled = debug && this.environment !== 'production';
         const response = {
-            query,
+            query: normalizedQuery,
             maxResults,
             whitelist: {
                 sourceFile: this.whitelistPath,
@@ -79,6 +103,7 @@ let YoutubeService = class YoutubeService {
             },
             items,
         };
+        await this.saveSearchResponse(normalizedQuery, response);
         if (isDebugEnabled) {
             response.debug = {
                 enabled: true,
@@ -95,7 +120,62 @@ let YoutubeService = class YoutubeService {
         }
         return response;
     }
+    async getCachedSearchResponse(query) {
+        const cachedEntry = await this.prismaService.youtubeSearchCache.findFirst({
+            where: { query },
+        });
+        if (!cachedEntry) {
+            return null;
+        }
+        const ageMs = Date.now() - new Date(cachedEntry.updatedAt).getTime();
+        if (ageMs > this.cacheTtlMs) {
+            return null;
+        }
+        const parsedItems = Array.isArray(cachedEntry.items)
+            ? cachedEntry.items
+            : [];
+        return {
+            query: cachedEntry.query,
+            maxResults: parsedItems.length,
+            whitelist: {
+                sourceFile: this.whitelistPath,
+                configuredEntries: [],
+                resolvedChannelIds: [],
+            },
+            items: parsedItems,
+        };
+    }
+    async saveSearchResponse(query, response) {
+        const itemsToStore = response.items.slice(0, 5).map((item) => ({
+            videoId: item.videoId,
+            title: item.title,
+            description: item.description,
+            channelTitle: item.channelTitle,
+            channelId: item.channelId,
+            publishedAt: item.publishedAt,
+            thumbnailUrl: item.thumbnailUrl,
+            videoUrl: item.videoUrl,
+            duration: item.duration,
+            durationSeconds: item.durationSeconds,
+            isShort: item.isShort,
+        }));
+        await this.prismaService.youtubeSearchCache.upsert({
+            where: { query },
+            update: {
+                items: itemsToStore,
+                updatedAt: new Date(),
+            },
+            create: {
+                query,
+                items: itemsToStore,
+            },
+        });
+    }
     async searchWithinChannel(query, channelId, maxResults, apiKey) {
+        const cachedChannelSearch = await this.getCachedChannelSearch(query, channelId);
+        if (cachedChannelSearch.length > 0) {
+            return cachedChannelSearch;
+        }
         const url = new URL('https://www.googleapis.com/youtube/v3/search');
         url.searchParams.set('part', 'snippet');
         url.searchParams.set('type', 'video');
@@ -139,7 +219,7 @@ let YoutubeService = class YoutubeService {
             return [];
         }
         const durationByVideoId = await this.fetchVideoDurations(mappedItems.map((item) => item.videoId), apiKey);
-        return mappedItems.map((item, index) => {
+        const scoredResults = mappedItems.map((item, index) => {
             const durationRaw = durationByVideoId.get(item.videoId) ?? '';
             const durationSeconds = this.parseIso8601DurationToSeconds(durationRaw);
             const enrichedItem = {
@@ -154,6 +234,52 @@ let YoutubeService = class YoutubeService {
                 preferredBoostApplied: false,
             };
         });
+        await this.saveChannelSearch(query, channelId, scoredResults).catch(err => {
+            console.warn(`Failed to cache channel search for query "${query}" in channel ${channelId}:`, err);
+        });
+        return scoredResults;
+    }
+    async getCachedChannelSearch(query, channelId) {
+        try {
+            const cached = await this.prismaService.youtubeChannelSearchCache.findUnique({
+                where: {
+                    query_channelId: { query, channelId },
+                },
+            });
+            if (!cached) {
+                return [];
+            }
+            const ageMs = Date.now() - new Date(cached.updatedAt).getTime();
+            if (ageMs > this.cacheTtlMs) {
+                return [];
+            }
+            return Array.isArray(cached.items)
+                ? cached.items
+                : [];
+        }
+        catch (error) {
+            return [];
+        }
+    }
+    async saveChannelSearch(query, channelId, items) {
+        try {
+            await this.prismaService.youtubeChannelSearchCache.upsert({
+                where: {
+                    query_channelId: { query, channelId },
+                },
+                update: {
+                    items,
+                    updatedAt: new Date(),
+                },
+                create: {
+                    query,
+                    channelId,
+                    items,
+                },
+            });
+        }
+        catch (error) {
+        }
     }
     get environment() {
         return this.configService.get('NODE_ENV') ?? 'development';
@@ -246,9 +372,16 @@ let YoutubeService = class YoutubeService {
             return null;
         }
         const cacheKey = handle.toLowerCase();
-        const cached = this.channelIdCache.get(cacheKey);
-        if (cached) {
-            return cached;
+        const memoryCached = this.memoryChannelIdCache.get(cacheKey);
+        if (memoryCached) {
+            return memoryCached;
+        }
+        const dbCached = await this.prismaService.youtubeChannelCache.findUnique({
+            where: { handle: cacheKey },
+        });
+        if (dbCached) {
+            this.memoryChannelIdCache.set(cacheKey, dbCached.channelId);
+            return dbCached.channelId;
         }
         const url = new URL('https://www.googleapis.com/youtube/v3/channels');
         url.searchParams.set('part', 'id');
@@ -264,7 +397,14 @@ let YoutubeService = class YoutubeService {
         if (!channelId) {
             return null;
         }
-        this.channelIdCache.set(cacheKey, channelId);
+        this.memoryChannelIdCache.set(cacheKey, channelId);
+        await this.prismaService.youtubeChannelCache.upsert({
+            where: { handle: cacheKey },
+            update: { channelId },
+            create: { handle: cacheKey, channelId },
+        }).catch(err => {
+            console.warn(`Failed to cache channel ID for ${handle}:`, err);
+        });
         return channelId;
     }
     get whitelistPath() {
@@ -340,6 +480,7 @@ let YoutubeService = class YoutubeService {
 exports.YoutubeService = YoutubeService;
 exports.YoutubeService = YoutubeService = __decorate([
     (0, common_1.Injectable)(),
-    __metadata("design:paramtypes", [config_1.ConfigService])
+    __metadata("design:paramtypes", [config_1.ConfigService,
+        prisma_service_1.PrismaService])
 ], YoutubeService);
 //# sourceMappingURL=youtube.service.js.map
