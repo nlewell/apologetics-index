@@ -53,6 +53,9 @@ export const useIndexItemsTopicsWithSubtopics = () => {
     },
     staleTime: 10 * 60 * 1000,
     gcTime: 20 * 60 * 1000,
+    refetchOnReconnect: true,
+    refetchOnWindowFocus: true,
+    retry: 2,
   });
 };
 

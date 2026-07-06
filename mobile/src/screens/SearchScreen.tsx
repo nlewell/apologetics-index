@@ -1,11 +1,14 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
+  Clipboard,
   FlatList,
   Image,
   Linking,
   SafeAreaView,
   SectionList,
+  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -13,6 +16,7 @@ import {
   View,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   useIndexItemsTopicsWithSubtopics,
   useYoutubeSearch,
@@ -46,10 +50,23 @@ export const SearchScreen: React.FC<SearchScreenProps> = () => {
   const {
     data: topicTree,
     isLoading: isTopicsLoading,
+    isFetching: isTopicsFetching,
     isError: isTopicsError,
     error: topicsError,
     refetch: refetchTopics,
   } = useIndexItemsTopicsWithSubtopics();
+
+  useFocusEffect(
+    useCallback(() => {
+      if (isTopicsError || (!topicTree?.length && !isTopicsLoading)) {
+        refetchTopics();
+      }
+    }, [isTopicsError, isTopicsLoading, refetchTopics, topicTree?.length]),
+  );
+
+  const handleRefreshTopics = () => {
+    refetchTopics();
+  };
 
   const {
     data: searchData,
@@ -170,6 +187,20 @@ export const SearchScreen: React.FC<SearchScreenProps> = () => {
     await Linking.openURL(url);
   };
 
+  const handleCopyVideoUrl = async (item: YoutubeSearchItem) => {
+    const url = item.videoUrl || `https://www.youtube.com/watch?v=${item.videoId}`;
+    Clipboard.setString(url);
+    Alert.alert('Link copied', 'The YouTube link was copied to your clipboard.');
+  };
+
+  const handleShareVideoUrl = async (item: YoutubeSearchItem) => {
+    const url = item.videoUrl || `https://www.youtube.com/watch?v=${item.videoId}`;
+    await Share.share({
+      message: url,
+      title: 'Watch this YouTube video',
+    });
+  };
+
   const clearSearch = () => {
     setSearchQuery('');
     setYoutubeQuery('');
@@ -190,6 +221,8 @@ export const SearchScreen: React.FC<SearchScreenProps> = () => {
   };
 
   const renderVideoCard = ({ item }: { item: YoutubeSearchItem }) => {
+    const url = item.videoUrl || `https://www.youtube.com/watch?v=${item.videoId}`;
+
     return (
       <TouchableOpacity
         style={styles.videoCard}
@@ -223,6 +256,29 @@ export const SearchScreen: React.FC<SearchScreenProps> = () => {
                 Published: {new Date(item.publishedAt).toLocaleDateString()}
               </Text>
             ) : null}
+          </View>
+
+          <View style={styles.linkContainer}>
+            <Text style={styles.linkLabel}>YouTube link</Text>
+            <Text style={styles.linkText} numberOfLines={1}>
+              {url}
+            </Text>
+            <View style={styles.linkActions}>
+              <TouchableOpacity
+                style={styles.linkActionButton}
+                onPress={() => handleCopyVideoUrl(item)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.linkActionText}>Copy</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.linkActionButton}
+                onPress={() => handleShareVideoUrl(item)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.linkActionText}>Share</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </TouchableOpacity>
@@ -507,7 +563,19 @@ export const SearchScreen: React.FC<SearchScreenProps> = () => {
           hasYoutubeQuery ? styles.topicsPanelWithResults : styles.topicsPanelFull,
         ]}
       >
-        <Text style={styles.panelTitle}>Topics, Subtopics, and Charges</Text>
+        <View style={styles.panelHeader}>
+          <Text style={styles.panelTitle}>Topics, Subtopics, and Charges</Text>
+          <TouchableOpacity
+            style={styles.refreshButton}
+            onPress={handleRefreshTopics}
+            disabled={isTopicsFetching}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.refreshButtonText}>
+              {isTopicsFetching ? 'Refreshing...' : 'Refresh'}
+            </Text>
+          </TouchableOpacity>
+        </View>
 
         {isTopicsLoading ? (
           <View style={styles.inlineStateContainer}>
@@ -519,9 +587,12 @@ export const SearchScreen: React.FC<SearchScreenProps> = () => {
             <Text style={styles.errorDetail}>{formatApiError(topicsError)}</Text>
             <TouchableOpacity
               style={styles.retryButton}
-              onPress={() => refetchTopics()}
+              onPress={handleRefreshTopics}
+              disabled={isTopicsFetching}
             >
-              <Text style={styles.retryButtonText}>Retry topics</Text>
+              <Text style={styles.retryButtonText}>
+                {isTopicsFetching ? 'Refreshing...' : 'Retry topics'}
+              </Text>
             </TouchableOpacity>
           </View>
         ) : (
@@ -684,12 +755,28 @@ const styles = StyleSheet.create({
   topicsScrollView: {
     flex: 1,
   },
+  panelHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    marginBottom: 8,
+  },
   panelTitle: {
     fontSize: 13,
     color: '#334155',
     fontWeight: '700',
-    paddingHorizontal: 14,
-    marginBottom: 8,
+  },
+  refreshButton: {
+    backgroundColor: '#e5e7eb',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  refreshButtonText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#1f2937',
   },
   topicsScrollContent: {
     paddingHorizontal: 12,
@@ -918,6 +1005,41 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#6b7280',
     fontWeight: '500',
+  },
+  linkContainer: {
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#e5e7eb',
+    gap: 6,
+  },
+  linkLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#64748b',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+  linkText: {
+    fontSize: 12,
+    color: '#2563eb',
+    fontWeight: '600',
+  },
+  linkActions: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 2,
+  },
+  linkActionButton: {
+    backgroundColor: '#eff6ff',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  linkActionText: {
+    color: '#1d4ed8',
+    fontSize: 12,
+    fontWeight: '700',
   },
   inlineStateContainer: {
     paddingHorizontal: 14,
