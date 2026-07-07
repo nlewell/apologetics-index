@@ -101,6 +101,7 @@ export class YoutubeService {
     debug = false,
   ): Promise<YoutubeSearchResponse> {
     const normalizedQuery = query.trim();
+    const cacheKey = this.normalizeQueryKey(query);
 
     if (!normalizedQuery) {
       return {
@@ -115,7 +116,7 @@ export class YoutubeService {
       };
     }
 
-    const cachedResponse = await this.getCachedSearchResponse(normalizedQuery);
+    const cachedResponse = await this.getCachedSearchResponse(cacheKey);
     if (cachedResponse) {
       return {
         ...cachedResponse,
@@ -158,7 +159,13 @@ export class YoutubeService {
 
     const channelSearchResults = await Promise.all(
       resolvedChannelIds.map((channelId) =>
-        this.searchWithinChannel(query, channelId, perChannelMaxResults, apiKey),
+        this.searchWithinChannel(
+          query,
+          cacheKey,
+          channelId,
+          perChannelMaxResults,
+          apiKey,
+        ),
       ),
     );
 
@@ -205,7 +212,7 @@ export class YoutubeService {
       items,
     };
 
-    await this.saveSearchResponse(normalizedQuery, response);
+    await this.saveSearchResponse(cacheKey, response);
 
     if (isDebugEnabled) {
       response.debug = {
@@ -226,10 +233,10 @@ export class YoutubeService {
   }
 
   private async getCachedSearchResponse(
-    query: string,
+    cacheKey: string,
   ): Promise<YoutubeSearchResponse | null> {
     const cachedEntry = await this.prismaService.youtubeSearchCache.findFirst({
-      where: { query },
+      where: { query: cacheKey },
     });
 
     if (!cachedEntry) {
@@ -258,7 +265,7 @@ export class YoutubeService {
   }
 
   private async saveSearchResponse(
-    query: string,
+    cacheKey: string,
     response: YoutubeSearchResponse,
   ): Promise<void> {
     const itemsToStore = response.items.slice(0, 5).map((item) => ({
@@ -276,13 +283,13 @@ export class YoutubeService {
     }));
 
     await this.prismaService.youtubeSearchCache.upsert({
-      where: { query },
+      where: { query: cacheKey },
       update: {
         items: itemsToStore,
         updatedAt: new Date(),
       },
       create: {
-        query,
+        query: cacheKey,
         items: itemsToStore,
       },
     });
@@ -290,12 +297,13 @@ export class YoutubeService {
 
   private async searchWithinChannel(
     query: string,
+    cacheKey: string,
     channelId: string,
     maxResults: number,
     apiKey: string,
   ): Promise<ScoredYoutubeSearchResult[]> {
     // Check per-channel cache first - this avoids API calls for repeated searches
-    const cachedChannelSearch = await this.getCachedChannelSearch(query, channelId);
+    const cachedChannelSearch = await this.getCachedChannelSearch(cacheKey, channelId);
     if (cachedChannelSearch.length > 0) {
       return cachedChannelSearch;
     }
@@ -376,7 +384,7 @@ export class YoutubeService {
     });
 
     // Cache per-channel results to avoid re-fetching on subsequent searches
-    await this.saveChannelSearch(query, channelId, scoredResults).catch(err => {
+    await this.saveChannelSearch(cacheKey, channelId, scoredResults).catch(err => {
       console.warn(`Failed to cache channel search for query "${query}" in channel ${channelId}:`, err);
     });
 
@@ -384,13 +392,13 @@ export class YoutubeService {
   }
 
   private async getCachedChannelSearch(
-    query: string,
+    cacheKey: string,
     channelId: string,
   ): Promise<ScoredYoutubeSearchResult[]> {
     try {
       const cached = await this.prismaService.youtubeChannelSearchCache.findUnique({
         where: {
-          query_channelId: { query, channelId },
+          query_channelId: { query: cacheKey, channelId },
         },
       });
 
@@ -413,21 +421,21 @@ export class YoutubeService {
   }
 
   private async saveChannelSearch(
-    query: string,
+    cacheKey: string,
     channelId: string,
     items: ScoredYoutubeSearchResult[],
   ): Promise<void> {
     try {
       await this.prismaService.youtubeChannelSearchCache.upsert({
         where: {
-          query_channelId: { query, channelId },
+          query_channelId: { query: cacheKey, channelId },
         },
         update: {
           items,
           updatedAt: new Date(),
         },
         create: {
-          query,
+          query: cacheKey,
           channelId,
           items,
         },
@@ -435,6 +443,10 @@ export class YoutubeService {
     } catch (error) {
       // Silently fail - cache writes are optional
     }
+  }
+
+  private normalizeQueryKey(query: string): string {
+    return query.trim().toLowerCase().replace(/\s+/g, ' ');
   }
 
   private get environment(): string {

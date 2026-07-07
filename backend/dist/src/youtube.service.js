@@ -28,6 +28,7 @@ let YoutubeService = class YoutubeService {
     }
     async search(query, maxResults = 5, debug = false) {
         const normalizedQuery = query.trim();
+        const cacheKey = this.normalizeQueryKey(query);
         if (!normalizedQuery) {
             return {
                 query: normalizedQuery,
@@ -40,7 +41,7 @@ let YoutubeService = class YoutubeService {
                 items: [],
             };
         }
-        const cachedResponse = await this.getCachedSearchResponse(normalizedQuery);
+        const cachedResponse = await this.getCachedSearchResponse(cacheKey);
         if (cachedResponse) {
             return {
                 ...cachedResponse,
@@ -68,7 +69,7 @@ let YoutubeService = class YoutubeService {
             };
         }
         const perChannelMaxResults = Math.max(1, Math.min(10, Math.ceil(maxResults / resolvedChannelIds.length) + 1));
-        const channelSearchResults = await Promise.all(resolvedChannelIds.map((channelId) => this.searchWithinChannel(query, channelId, perChannelMaxResults, apiKey)));
+        const channelSearchResults = await Promise.all(resolvedChannelIds.map((channelId) => this.searchWithinChannel(query, cacheKey, channelId, perChannelMaxResults, apiKey)));
         const deduped = new Map();
         for (const item of channelSearchResults.flat()) {
             if (!deduped.has(item.videoId)) {
@@ -103,7 +104,7 @@ let YoutubeService = class YoutubeService {
             },
             items,
         };
-        await this.saveSearchResponse(normalizedQuery, response);
+        await this.saveSearchResponse(cacheKey, response);
         if (isDebugEnabled) {
             response.debug = {
                 enabled: true,
@@ -120,9 +121,9 @@ let YoutubeService = class YoutubeService {
         }
         return response;
     }
-    async getCachedSearchResponse(query) {
+    async getCachedSearchResponse(cacheKey) {
         const cachedEntry = await this.prismaService.youtubeSearchCache.findFirst({
-            where: { query },
+            where: { query: cacheKey },
         });
         if (!cachedEntry) {
             return null;
@@ -145,7 +146,7 @@ let YoutubeService = class YoutubeService {
             items: parsedItems,
         };
     }
-    async saveSearchResponse(query, response) {
+    async saveSearchResponse(cacheKey, response) {
         const itemsToStore = response.items.slice(0, 5).map((item) => ({
             videoId: item.videoId,
             title: item.title,
@@ -160,19 +161,19 @@ let YoutubeService = class YoutubeService {
             isShort: item.isShort,
         }));
         await this.prismaService.youtubeSearchCache.upsert({
-            where: { query },
+            where: { query: cacheKey },
             update: {
                 items: itemsToStore,
                 updatedAt: new Date(),
             },
             create: {
-                query,
+                query: cacheKey,
                 items: itemsToStore,
             },
         });
     }
-    async searchWithinChannel(query, channelId, maxResults, apiKey) {
-        const cachedChannelSearch = await this.getCachedChannelSearch(query, channelId);
+    async searchWithinChannel(query, cacheKey, channelId, maxResults, apiKey) {
+        const cachedChannelSearch = await this.getCachedChannelSearch(cacheKey, channelId);
         if (cachedChannelSearch.length > 0) {
             return cachedChannelSearch;
         }
@@ -234,16 +235,16 @@ let YoutubeService = class YoutubeService {
                 preferredBoostApplied: false,
             };
         });
-        await this.saveChannelSearch(query, channelId, scoredResults).catch(err => {
+        await this.saveChannelSearch(cacheKey, channelId, scoredResults).catch(err => {
             console.warn(`Failed to cache channel search for query "${query}" in channel ${channelId}:`, err);
         });
         return scoredResults;
     }
-    async getCachedChannelSearch(query, channelId) {
+    async getCachedChannelSearch(cacheKey, channelId) {
         try {
             const cached = await this.prismaService.youtubeChannelSearchCache.findUnique({
                 where: {
-                    query_channelId: { query, channelId },
+                    query_channelId: { query: cacheKey, channelId },
                 },
             });
             if (!cached) {
@@ -261,18 +262,18 @@ let YoutubeService = class YoutubeService {
             return [];
         }
     }
-    async saveChannelSearch(query, channelId, items) {
+    async saveChannelSearch(cacheKey, channelId, items) {
         try {
             await this.prismaService.youtubeChannelSearchCache.upsert({
                 where: {
-                    query_channelId: { query, channelId },
+                    query_channelId: { query: cacheKey, channelId },
                 },
                 update: {
                     items,
                     updatedAt: new Date(),
                 },
                 create: {
-                    query,
+                    query: cacheKey,
                     channelId,
                     items,
                 },
@@ -280,6 +281,9 @@ let YoutubeService = class YoutubeService {
         }
         catch (error) {
         }
+    }
+    normalizeQueryKey(query) {
+        return query.trim().toLowerCase().replace(/\s+/g, ' ');
     }
     get environment() {
         return this.configService.get('NODE_ENV') ?? 'development';

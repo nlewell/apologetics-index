@@ -48,6 +48,7 @@ export declare class YoutubeService {
     private searchWithinChannel;
     private getCachedChannelSearch;
     private saveChannelSearch;
+    private normalizeQueryKey;
     private get environment();
     private computeRelevanceScore;
     private normalizeText;

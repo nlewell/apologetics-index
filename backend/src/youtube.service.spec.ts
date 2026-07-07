@@ -67,4 +67,38 @@ describe('YoutubeService', () => {
     expect(response.items).toEqual(cachedItems);
     expect(searchWithinChannelSpy).not.toHaveBeenCalled();
   });
+
+  it('normalizes query casing and spacing before cache lookup', async () => {
+    const cachedItems = [
+      {
+        videoId: 'cached-video',
+        title: 'Cached result',
+        description: '',
+        channelTitle: 'Channel',
+        channelId: 'channel-id',
+        publishedAt: '2024-01-01T00:00:00.000Z',
+        thumbnailUrl: null,
+        videoUrl: 'https://www.youtube.com/watch?v=cached-video',
+        duration: '3:14',
+        durationSeconds: 194,
+        isShort: false,
+      },
+    ];
+
+    (prismaService.youtubeSearchCache.findFirst as jest.Mock).mockResolvedValue({
+      query: 'god',
+      items: cachedItems,
+      updatedAt: new Date(),
+    });
+
+    const searchWithinChannelSpy = jest.spyOn(
+      service as any,
+      'searchWithinChannel',
+    );
+
+    const response = await service.search('   GoD   ', 5, false);
+
+    expect(response.items).toEqual(cachedItems);
+    expect(searchWithinChannelSpy).not.toHaveBeenCalled();
+  });
 });
