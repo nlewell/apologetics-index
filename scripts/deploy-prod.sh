@@ -6,6 +6,9 @@ BACKEND_DIR="$ROOT_DIR/backend"
 BRANCH="${BRANCH:-main}"
 PM2_NAME="${PM2_NAME:-apologetics-backend}"
 SYSTEMD_SERVICE="${SYSTEMD_SERVICE:-}"
+INSTALL_DEPS="${INSTALL_DEPS:-0}"
+BUILD_APP="${BUILD_APP:-0}"
+RUN_MIGRATIONS="${RUN_MIGRATIONS:-0}"
 DRY_RUN="${DRY_RUN:-0}"
 
 usage() {
@@ -16,6 +19,9 @@ Environment variables:
   BRANCH             Git branch to deploy (default: main)
   PM2_NAME           PM2 process name (default: apologetics-backend)
   SYSTEMD_SERVICE    Systemd service name to restart if PM2 is unavailable
+  INSTALL_DEPS       Set to 1 to run npm ci --omit=dev
+  BUILD_APP          Set to 1 to run npm run build
+  RUN_MIGRATIONS     Set to 1 to run prisma migrate deploy
   DRY_RUN            Set to 1 to print commands without running them
 EOF
 }
@@ -46,10 +52,18 @@ run_cmd git checkout "$BRANCH"
 run_cmd git pull origin "$BRANCH"
 
 cd "$BACKEND_DIR"
-run_cmd npm ci --no-audit --no-fund
-run_cmd npm run build
-run_cmd npm run prisma:generate
-run_cmd npm run prisma:migrate:deploy
+
+if [[ "$INSTALL_DEPS" == "1" ]]; then
+  run_cmd npm ci --omit=dev --no-audit --no-fund
+fi
+
+if [[ "$BUILD_APP" == "1" ]]; then
+  run_cmd npm run build
+fi
+
+if [[ "$RUN_MIGRATIONS" == "1" ]]; then
+  run_cmd npm run prisma:migrate:deploy
+fi
 
 if command -v pm2 >/dev/null 2>&1; then
   echo "Restarting PM2 process '$PM2_NAME'"

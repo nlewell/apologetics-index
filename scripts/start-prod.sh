@@ -9,4 +9,5 @@ set -a
 source .env
 set +a
 export NODE_ENV=production
+export NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=256}"
 npm run start:prod

@@ -106,3 +106,58 @@ Use Expo Go or Android/iOS simulator to open the app.
 ### Phase 4
 
 - Deployment and CI/CD (GitHub Actions)
+
+## Production Operations
+
+The repository includes scripts designed for low-memory production hosts.
+
+### Deploy backend safely on production
+
+Run this directly on the production host:
+
+```bash
+cd /home/ubuntu/app
+./scripts/remote-deploy.sh
+```
+
+Defaults are memory-safe:
+
+- Skips `npm ci`
+- Skips build
+- Skips migrations
+- Pulls latest git commit and restarts systemd service
+- Runs health check at `http://127.0.0.1:3000/api`
+
+Optional toggles:
+
+```bash
+INSTALL_DEPS=1 BUILD_APP=1 RUN_MIGRATIONS=1 ./scripts/remote-deploy.sh
+```
+
+Use this only when you intentionally need dependency reinstall/build/migration.
+
+### Database maintenance
+
+The script below supports table status and safe cleanup operations:
+
+```bash
+./scripts/db-maintenance.sh status
+./scripts/db-maintenance.sh clear-cache
+./scripts/db-maintenance.sh clear-index
+./scripts/db-maintenance.sh clear-all-data
+```
+
+Destructive operations require typing `YES` unless `--yes` is supplied.
+
+Examples:
+
+```bash
+./scripts/db-maintenance.sh clear-cache --yes
+ASSUME_YES=1 ./scripts/db-maintenance.sh clear-index
+```
+
+By default, the script reads `backend/.env`. You can override with:
+
+```bash
+ENV_FILE=/path/to/.env ./scripts/db-maintenance.sh status
+```
