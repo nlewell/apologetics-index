@@ -142,6 +142,7 @@ The script below supports table status and safe cleanup operations:
 
 ```bash
 ./scripts/db-maintenance.sh status
+./scripts/db-maintenance.sh prune-cache
 ./scripts/db-maintenance.sh clear-cache
 ./scripts/db-maintenance.sh clear-index
 ./scripts/db-maintenance.sh clear-all-data
@@ -154,6 +155,7 @@ Examples:
 ```bash
 ./scripts/db-maintenance.sh clear-cache --yes
 ASSUME_YES=1 ./scripts/db-maintenance.sh clear-index
+PRUNE_DAYS=8 ./scripts/db-maintenance.sh prune-cache
 ```
 
 By default, the script reads `backend/.env`. You can override with:

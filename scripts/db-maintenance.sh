@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="${ENV_FILE:-$ROOT_DIR/backend/.env}"
 ACTION="${1:-}"
 ASSUME_YES="${ASSUME_YES:-0}"
+PRUNE_DAYS="${PRUNE_DAYS:-8}"
 
 usage() {
   cat <<'EOF'
@@ -13,6 +14,7 @@ Usage:
 
 Actions:
   status           Show row counts for key tables
+  prune-cache      Delete cache rows older than PRUNE_DAYS (default: 8)
   clear-cache      Truncate YouTube cache tables only
   clear-index      Truncate apologetic index table only
   clear-all-data   Truncate index + YouTube cache tables
@@ -23,6 +25,7 @@ Options:
 Environment:
   ENV_FILE         Path to env file (default: backend/.env)
   ASSUME_YES=1     Skip confirmation prompts
+  PRUNE_DAYS=8     Days threshold for prune-cache action
 EOF
 }
 
@@ -83,6 +86,16 @@ show_status() {
 
 case "$ACTION" in
   status)
+    show_status
+    ;;
+  prune-cache)
+    if ! [[ "$PRUNE_DAYS" =~ ^[0-9]+$ ]]; then
+      echo "PRUNE_DAYS must be a non-negative integer"
+      exit 1
+    fi
+    run_sql "DELETE FROM \"YoutubeSearchCache\" WHERE \"updatedAt\" < NOW() - INTERVAL '$PRUNE_DAYS days';"
+    run_sql "DELETE FROM \"YoutubeChannelCache\" WHERE \"updatedAt\" < NOW() - INTERVAL '$PRUNE_DAYS days';"
+    run_sql "DELETE FROM \"YoutubeChannelSearchCache\" WHERE \"updatedAt\" < NOW() - INTERVAL '$PRUNE_DAYS days';"
     show_status
     ;;
   clear-cache)
