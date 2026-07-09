@@ -49,6 +49,7 @@ export type YoutubeSearchResult = {
   duration: string;
   durationSeconds: number;
   isShort: boolean;
+  startTimestamp: string | null;
 };
 
 export type YoutubeSearchResponse = {
@@ -99,6 +100,7 @@ export class YoutubeService {
     query: string,
     maxResults = 5,
     debug = false,
+    forceRefresh = false,
   ): Promise<YoutubeSearchResponse> {
     const normalizedQuery = query.trim();
     const cacheKey = this.normalizeQueryKey(query);
@@ -116,11 +118,15 @@ export class YoutubeService {
       };
     }
 
-    const cachedResponse = await this.getCachedSearchResponse(cacheKey);
+    const cachedResponse = forceRefresh
+      ? null
+      : await this.getCachedSearchResponse(cacheKey);
     if (cachedResponse) {
+      const cachedItems = await this.applyVideoMetadata(cachedResponse.items);
       return {
         ...cachedResponse,
         maxResults,
+        items: cachedItems,
       };
     }
 
@@ -199,6 +205,8 @@ export class YoutubeService {
       ({ relevanceScore: _relevanceScore, preferredBoostApplied: _preferredBoostApplied, ...item }) => item,
     );
 
+    const itemsWithMetadata = await this.applyVideoMetadata(items);
+
     const isDebugEnabled = debug && this.environment !== 'production';
 
     const response: YoutubeSearchResponse = {
@@ -209,7 +217,7 @@ export class YoutubeService {
         configuredEntries: whitelist,
         resolvedChannelIds,
       },
-      items,
+      items: itemsWithMetadata,
     };
 
     await this.saveSearchResponse(cacheKey, response);
@@ -240,11 +248,6 @@ export class YoutubeService {
     });
 
     if (!cachedEntry) {
-      return null;
-    }
-
-    const ageMs = Date.now() - new Date(cachedEntry.updatedAt).getTime();
-    if (ageMs > this.cacheTtlMs) {
       return null;
     }
 
@@ -280,6 +283,7 @@ export class YoutubeService {
       duration: item.duration,
       durationSeconds: item.durationSeconds,
       isShort: item.isShort,
+      startTimestamp: item.startTimestamp,
     }));
 
     await this.prismaService.youtubeSearchCache.upsert({
@@ -353,6 +357,7 @@ export class YoutubeService {
           duration: '',
           durationSeconds: 0,
           isShort: false,
+          startTimestamp: null,
         };
       })
       .filter((item): item is YoutubeSearchResult => item !== null);
@@ -374,6 +379,7 @@ export class YoutubeService {
         duration: this.formatDuration(durationSeconds),
         durationSeconds,
         isShort: durationSeconds > 0 && durationSeconds <= this.shortsMaxSeconds,
+        startTimestamp: item.startTimestamp ?? null,
       };
 
       return {
@@ -403,11 +409,6 @@ export class YoutubeService {
       });
 
       if (!cached) {
-        return [];
-      }
-
-      const ageMs = Date.now() - new Date(cached.updatedAt).getTime();
-      if (ageMs > this.cacheTtlMs) {
         return [];
       }
 
@@ -445,8 +446,92 @@ export class YoutubeService {
     }
   }
 
+  private async applyVideoMetadata(
+    items: YoutubeSearchResult[],
+  ): Promise<YoutubeSearchResult[]> {
+    if (!items.length) {
+      return items;
+    }
+
+    const videoIds = items.map((item) => item.videoId);
+    const metadataRows = await this.prismaService.youtubeVideoMetadata.findMany({
+      where: {
+        videoId: {
+          in: videoIds,
+        },
+      },
+    });
+
+    if (!metadataRows.length) {
+      return items;
+    }
+
+    const metadataByVideoId = new Map<string, string | null>(
+      metadataRows.map((row: { videoId: string; startTimestamp: string | null }) => [
+        row.videoId,
+        row.startTimestamp,
+      ]),
+    );
+
+    return items.map((item) => {
+      const startTimestamp = metadataByVideoId.get(item.videoId) ?? null;
+      if (!startTimestamp) {
+        return item;
+      }
+
+      const startSeconds = this.parseStartTimestampToSeconds(startTimestamp);
+      if (startSeconds === null) {
+        return {
+          ...item,
+          startTimestamp,
+        };
+      }
+
+      return {
+        ...item,
+        startTimestamp,
+        videoUrl: this.appendStartSeconds(item.videoUrl, startSeconds),
+      };
+    });
+  }
+
   private normalizeQueryKey(query: string): string {
     return query.trim().toLowerCase().replace(/\s+/g, ' ');
+  }
+
+  private parseStartTimestampToSeconds(startTimestamp: string): number | null {
+    const trimmed = startTimestamp.trim();
+
+    if (!trimmed) {
+      return null;
+    }
+
+    if (/^\d+$/.test(trimmed)) {
+      return Number(trimmed);
+    }
+
+    const parts = trimmed.split(':').map((part) => Number(part));
+    if (parts.some((part) => Number.isNaN(part))) {
+      return null;
+    }
+
+    if (parts.length === 2) {
+      const [minutes, seconds] = parts;
+      return minutes * 60 + seconds;
+    }
+
+    if (parts.length === 3) {
+      const [hours, minutes, seconds] = parts;
+      return hours * 3600 + minutes * 60 + seconds;
+    }
+
+    return null;
+  }
+
+  private appendStartSeconds(videoUrl: string, startSeconds: number): string {
+    const url = new URL(videoUrl);
+    url.searchParams.set('t', String(startSeconds));
+    return url.toString();
   }
 
   private get environment(): string {

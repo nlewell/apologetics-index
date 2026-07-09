@@ -18,6 +18,11 @@ class YoutubeSearchQueryDto {
   @Transform(({ value }) => value === 'true' || value === '1' || value === true)
   @IsBoolean()
   debug?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === '1' || value === true)
+  @IsBoolean()
+  forceRefresh?: boolean;
 }
 
 @Controller('youtube')
@@ -26,6 +31,11 @@ export class YoutubeController {
 
   @Get('search')
   search(@Query() query: YoutubeSearchQueryDto) {
-    return this.youtubeService.search(query.q, query.maxResults ?? 5, query.debug ?? false);
+    return this.youtubeService.search(
+      query.q,
+      query.maxResults ?? 5,
+      query.debug ?? false,
+      query.forceRefresh ?? false,
+    );
   }
 }

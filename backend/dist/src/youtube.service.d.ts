@@ -12,6 +12,7 @@ export type YoutubeSearchResult = {
     duration: string;
     durationSeconds: number;
     isShort: boolean;
+    startTimestamp: string | null;
 };
 export type YoutubeSearchResponse = {
     query: string;
@@ -42,13 +43,16 @@ export declare class YoutubeService {
     private readonly shortsMaxSeconds;
     private readonly cacheTtlMs;
     constructor(configService: ConfigService, prismaService: PrismaService);
-    search(query: string, maxResults?: number, debug?: boolean): Promise<YoutubeSearchResponse>;
+    search(query: string, maxResults?: number, debug?: boolean, forceRefresh?: boolean): Promise<YoutubeSearchResponse>;
     private getCachedSearchResponse;
     private saveSearchResponse;
     private searchWithinChannel;
     private getCachedChannelSearch;
     private saveChannelSearch;
+    private applyVideoMetadata;
     private normalizeQueryKey;
+    private parseStartTimestampToSeconds;
+    private appendStartSeconds;
     private get environment();
     private computeRelevanceScore;
     private normalizeText;

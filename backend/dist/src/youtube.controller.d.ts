@@ -3,6 +3,7 @@ declare class YoutubeSearchQueryDto {
     q: string;
     maxResults?: number;
     debug?: boolean;
+    forceRefresh?: boolean;
 }
 export declare class YoutubeController {
     private readonly youtubeService;

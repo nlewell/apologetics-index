@@ -70,6 +70,7 @@ export interface YoutubeSearchItem {
   duration: string;
   durationSeconds: number;
   isShort: boolean;
+  startTimestamp: string | null;
 }
 
 export interface YoutubeSearchResponse {

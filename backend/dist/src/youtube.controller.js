@@ -21,6 +21,7 @@ class YoutubeSearchQueryDto {
     q;
     maxResults;
     debug;
+    forceRefresh;
 }
 __decorate([
     (0, class_validator_1.IsString)(),
@@ -40,13 +41,19 @@ __decorate([
     (0, class_validator_1.IsBoolean)(),
     __metadata("design:type", Boolean)
 ], YoutubeSearchQueryDto.prototype, "debug", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_transformer_1.Transform)(({ value }) => value === 'true' || value === '1' || value === true),
+    (0, class_validator_1.IsBoolean)(),
+    __metadata("design:type", Boolean)
+], YoutubeSearchQueryDto.prototype, "forceRefresh", void 0);
 let YoutubeController = class YoutubeController {
     youtubeService;
     constructor(youtubeService) {
         this.youtubeService = youtubeService;
     }
     search(query) {
-        return this.youtubeService.search(query.q, query.maxResults ?? 5, query.debug ?? false);
+        return this.youtubeService.search(query.q, query.maxResults ?? 5, query.debug ?? false, query.forceRefresh ?? false);
     }
 };
 exports.YoutubeController = YoutubeController;

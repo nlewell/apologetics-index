@@ -37,6 +37,7 @@ export const SearchScreen: React.FC<SearchScreenProps> = () => {
     process.env.EXPO_PUBLIC_YOUTUBE_DEBUG === 'true';
   const [searchQuery, setSearchQuery] = useState('');
   const [youtubeQuery, setYoutubeQuery] = useState('');
+  const [forceRefresh, setForceRefresh] = useState(false);
   const [selectedTopic, setSelectedTopic] = useState<string | null>(null);
   const [selectedSubtopic, setSelectedSubtopic] = useState<string | null>(null);
   const [selectedCharge, setSelectedCharge] = useState<string | null>(null);
@@ -74,7 +75,7 @@ export const SearchScreen: React.FC<SearchScreenProps> = () => {
     isError: isVideosError,
     error: videosError,
     refetch: refetchVideos,
-  } = useYoutubeSearch(youtubeQuery, 5, isYoutubeDebugEnabled);
+  } = useYoutubeSearch(youtubeQuery, 5, isYoutubeDebugEnabled, forceRefresh);
 
   const hasYoutubeQuery = youtubeQuery.length > 0;
 
@@ -220,6 +221,21 @@ export const SearchScreen: React.FC<SearchScreenProps> = () => {
     setYoutubeQuery(normalized);
   };
 
+  const refreshYoutubeResults = async () => {
+    if (!youtubeQuery.trim()) {
+      return;
+    }
+
+    setForceRefresh(true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    try {
+      await refetchVideos();
+    } finally {
+      setForceRefresh(false);
+    }
+  };
+
   const renderVideoCard = ({ item }: { item: YoutubeSearchItem }) => {
     const url = item.videoUrl || `https://www.youtube.com/watch?v=${item.videoId}`;
 
@@ -251,6 +267,11 @@ export const SearchScreen: React.FC<SearchScreenProps> = () => {
             <Text style={styles.videoInfoText}>
               Length: {item.duration || 'Unknown'}
             </Text>
+            {item.startTimestamp ? (
+              <Text style={styles.videoInfoText}>
+                Starts at: {item.startTimestamp}
+              </Text>
+            ) : null}
             {item.publishedAt ? (
               <Text style={styles.videoInfoText}>
                 Published: {new Date(item.publishedAt).toLocaleDateString()}
@@ -635,6 +656,16 @@ export const SearchScreen: React.FC<SearchScreenProps> = () => {
         <>
           <View style={styles.resultsHeader}>
             <Text style={styles.resultsTitle}>{`Results for "${youtubeQuery}"`}</Text>
+            <TouchableOpacity
+              style={styles.resultsRefreshButton}
+              onPress={refreshYoutubeResults}
+              disabled={isVideosLoading}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.resultsRefreshButtonText}>
+                {isVideosLoading ? 'Refreshing...' : 'Refresh'}
+              </Text>
+            </TouchableOpacity>
           </View>
 
           {topMatch ? (
@@ -906,6 +937,19 @@ const styles = StyleSheet.create({
     color: '#0f172a',
     fontSize: 14,
     fontWeight: '700',
+  },
+  resultsRefreshButton: {
+    alignSelf: 'flex-start',
+    marginTop: 8,
+    backgroundColor: '#e0f2fe',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  resultsRefreshButtonText: {
+    color: '#075985',
+    fontSize: 12,
+    fontWeight: '800',
   },
   topMatchContainer: {
     paddingTop: 8,

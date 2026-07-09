@@ -6,6 +6,7 @@ export const useYoutubeSearch = (
   query: string,
   maxResults = 12,
   debug = false,
+  forceRefresh = false,
 ) => {
   const normalizedQuery = query.trim();
 
@@ -17,6 +18,7 @@ export const useYoutubeSearch = (
           q: normalizedQuery,
           maxResults,
           ...(debug ? { debug: true } : {}),
+          ...(forceRefresh ? { forceRefresh: true } : {}),
         },
       });
       return response.data;

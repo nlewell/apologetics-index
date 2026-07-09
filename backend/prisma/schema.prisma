@@ -60,3 +60,11 @@ model YoutubeChannelSearchCache {
   @@index([query])
   @@index([channelId])
 }
+
+model YoutubeVideoMetadata {
+  id             Int      @id @default(autoincrement())
+  videoId        String   @unique
+  startTimestamp  String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}

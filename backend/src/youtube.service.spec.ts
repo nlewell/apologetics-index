@@ -45,6 +45,7 @@ describe('YoutubeService', () => {
         duration: '3:14',
         durationSeconds: 194,
         isShort: false,
+        startTimestamp: null,
       },
     ];
 
@@ -82,6 +83,7 @@ describe('YoutubeService', () => {
         duration: '3:14',
         durationSeconds: 194,
         isShort: false,
+        startTimestamp: null,
       },
     ];
 

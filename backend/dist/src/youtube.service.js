@@ -26,7 +26,7 @@ let YoutubeService = class YoutubeService {
         this.prismaService = prismaService;
         this.shortsMaxSeconds = this.getShortsMaxSeconds();
     }
-    async search(query, maxResults = 5, debug = false) {
+    async search(query, maxResults = 5, debug = false, forceRefresh = false) {
         const normalizedQuery = query.trim();
         const cacheKey = this.normalizeQueryKey(query);
         if (!normalizedQuery) {
@@ -41,11 +41,15 @@ let YoutubeService = class YoutubeService {
                 items: [],
             };
         }
-        const cachedResponse = await this.getCachedSearchResponse(cacheKey);
+        const cachedResponse = forceRefresh
+            ? null
+            : await this.getCachedSearchResponse(cacheKey);
         if (cachedResponse) {
+            const cachedItems = await this.applyVideoMetadata(cachedResponse.items);
             return {
                 ...cachedResponse,
                 maxResults,
+                items: cachedItems,
             };
         }
         const apiKey = this.configService.get('YOUTUBE_API_KEY');
@@ -93,6 +97,7 @@ let YoutubeService = class YoutubeService {
         })
             .slice(0, maxResults);
         const items = scoredItems.map(({ relevanceScore: _relevanceScore, preferredBoostApplied: _preferredBoostApplied, ...item }) => item);
+        const itemsWithMetadata = await this.applyVideoMetadata(items);
         const isDebugEnabled = debug && this.environment !== 'production';
         const response = {
             query: normalizedQuery,
@@ -102,7 +107,7 @@ let YoutubeService = class YoutubeService {
                 configuredEntries: whitelist,
                 resolvedChannelIds,
             },
-            items,
+            items: itemsWithMetadata,
         };
         await this.saveSearchResponse(cacheKey, response);
         if (isDebugEnabled) {
@@ -126,10 +131,6 @@ let YoutubeService = class YoutubeService {
             where: { query: cacheKey },
         });
         if (!cachedEntry) {
-            return null;
-        }
-        const ageMs = Date.now() - new Date(cachedEntry.updatedAt).getTime();
-        if (ageMs > this.cacheTtlMs) {
             return null;
         }
         const parsedItems = Array.isArray(cachedEntry.items)
@@ -159,6 +160,7 @@ let YoutubeService = class YoutubeService {
             duration: item.duration,
             durationSeconds: item.durationSeconds,
             isShort: item.isShort,
+            startTimestamp: item.startTimestamp,
         }));
         await this.prismaService.youtubeSearchCache.upsert({
             where: { query: cacheKey },
@@ -213,6 +215,7 @@ let YoutubeService = class YoutubeService {
                 duration: '',
                 durationSeconds: 0,
                 isShort: false,
+                startTimestamp: null,
             };
         })
             .filter((item) => item !== null);
@@ -228,6 +231,7 @@ let YoutubeService = class YoutubeService {
                 duration: this.formatDuration(durationSeconds),
                 durationSeconds,
                 isShort: durationSeconds > 0 && durationSeconds <= this.shortsMaxSeconds,
+                startTimestamp: item.startTimestamp ?? null,
             };
             return {
                 ...enrichedItem,
@@ -248,10 +252,6 @@ let YoutubeService = class YoutubeService {
                 },
             });
             if (!cached) {
-                return [];
-            }
-            const ageMs = Date.now() - new Date(cached.updatedAt).getTime();
-            if (ageMs > this.cacheTtlMs) {
                 return [];
             }
             return Array.isArray(cached.items)
@@ -282,8 +282,73 @@ let YoutubeService = class YoutubeService {
         catch (error) {
         }
     }
+    async applyVideoMetadata(items) {
+        if (!items.length) {
+            return items;
+        }
+        const videoIds = items.map((item) => item.videoId);
+        const metadataRows = await this.prismaService.youtubeVideoMetadata.findMany({
+            where: {
+                videoId: {
+                    in: videoIds,
+                },
+            },
+        });
+        if (!metadataRows.length) {
+            return items;
+        }
+        const metadataByVideoId = new Map(metadataRows.map((row) => [
+            row.videoId,
+            row.startTimestamp,
+        ]));
+        return items.map((item) => {
+            const startTimestamp = metadataByVideoId.get(item.videoId) ?? null;
+            if (!startTimestamp) {
+                return item;
+            }
+            const startSeconds = this.parseStartTimestampToSeconds(startTimestamp);
+            if (startSeconds === null) {
+                return {
+                    ...item,
+                    startTimestamp,
+                };
+            }
+            return {
+                ...item,
+                startTimestamp,
+                videoUrl: this.appendStartSeconds(item.videoUrl, startSeconds),
+            };
+        });
+    }
     normalizeQueryKey(query) {
         return query.trim().toLowerCase().replace(/\s+/g, ' ');
+    }
+    parseStartTimestampToSeconds(startTimestamp) {
+        const trimmed = startTimestamp.trim();
+        if (!trimmed) {
+            return null;
+        }
+        if (/^\d+$/.test(trimmed)) {
+            return Number(trimmed);
+        }
+        const parts = trimmed.split(':').map((part) => Number(part));
+        if (parts.some((part) => Number.isNaN(part))) {
+            return null;
+        }
+        if (parts.length === 2) {
+            const [minutes, seconds] = parts;
+            return minutes * 60 + seconds;
+        }
+        if (parts.length === 3) {
+            const [hours, minutes, seconds] = parts;
+            return hours * 3600 + minutes * 60 + seconds;
+        }
+        return null;
+    }
+    appendStartSeconds(videoUrl, startSeconds) {
+        const url = new URL(videoUrl);
+        url.searchParams.set('t', String(startSeconds));
+        return url.toString();
     }
     get environment() {
         return this.configService.get('NODE_ENV') ?? 'development';
