@@ -10,6 +10,7 @@ import { StatusBar } from 'expo-status-bar';
 import { IndexItemsScreen } from './src/screens/IndexItemsScreen';
 import { IndexItemDetailScreen } from './src/screens/IndexItemDetailScreen';
 import { SearchScreen } from './src/screens/SearchScreen';
+import { YoutubeAdminScreen } from './src/screens/YoutubeAdminScreen';
 import { RootStackParamList } from './src/types/navigation';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -70,6 +71,13 @@ export default function App() {
             component={SearchScreen}
             options={{
               headerShown: false,
+            }}
+          />
+          <Stack.Screen
+            name="YoutubeAdmin"
+            component={YoutubeAdminScreen}
+            options={{
+              title: 'Admin',
             }}
           />
         </Stack.Navigator>

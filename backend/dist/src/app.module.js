@@ -20,6 +20,7 @@ const content_version_service_1 = require("./content-version.service");
 const api_key_guard_1 = require("./api-key.guard");
 const youtube_controller_1 = require("./youtube.controller");
 const youtube_service_1 = require("./youtube.service");
+const youtube_index_refresh_service_1 = require("./youtube-index-refresh.service");
 let AppModule = class AppModule {
 };
 exports.AppModule = AppModule;
@@ -38,6 +39,7 @@ exports.AppModule = AppModule = __decorate([
             index_items_service_1.IndexItemsService,
             content_version_service_1.ContentVersionService,
             youtube_service_1.YoutubeService,
+            youtube_index_refresh_service_1.YoutubeIndexRefreshService,
             {
                 provide: core_1.APP_GUARD,
                 useClass: api_key_guard_1.ApiKeyGuard,

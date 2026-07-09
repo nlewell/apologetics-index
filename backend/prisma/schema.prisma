@@ -40,6 +40,15 @@ model YoutubeSearchCache {
   updatedAt DateTime @updatedAt
 }
 
+model YoutubeVideoIndex {
+  id          Int      @id @default(autoincrement())
+  query       String   @unique
+  items       Json
+  refreshedAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
 model YoutubeChannelCache {
   id        Int      @id @default(autoincrement())
   handle    String   @unique
@@ -63,8 +72,14 @@ model YoutubeChannelSearchCache {
 
 model YoutubeVideoMetadata {
   id             Int      @id @default(autoincrement())
-  videoId        String   @unique
-  startTimestamp  String?
+  query          String
+  videoId        String
+  item           Json
+  startTimestamp String?
+  keepOnRefresh   Boolean  @default(false)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
+
+  @@unique([query, videoId])
+  @@index([query])
 }

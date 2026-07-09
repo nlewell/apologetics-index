@@ -13,6 +13,7 @@ export type YoutubeSearchResult = {
     durationSeconds: number;
     isShort: boolean;
     startTimestamp: string | null;
+    keepOnRefresh: boolean;
 };
 export type YoutubeSearchResponse = {
     query: string;
@@ -46,10 +47,22 @@ export declare class YoutubeService {
     search(query: string, maxResults?: number, debug?: boolean, forceRefresh?: boolean): Promise<YoutubeSearchResponse>;
     private getCachedSearchResponse;
     private saveSearchResponse;
+    private saveVideoIndex;
+    saveSearchOverride(input: {
+        query: string;
+        videoId: string;
+        item: YoutubeSearchResult;
+        startTimestamp: string | null;
+        keepOnRefresh: boolean;
+    }): Promise<YoutubeSearchResult>;
     private searchWithinChannel;
     private getCachedChannelSearch;
     private saveChannelSearch;
-    private applyVideoMetadata;
+    private applySearchOverrides;
+    private loadPreservedOverrideItems;
+    private overrideRowToSearchResult;
+    private applyOverrideToItem;
+    private applyStartTimestampToItem;
     private normalizeQueryKey;
     private parseStartTimestampToSeconds;
     private appendStartSeconds;

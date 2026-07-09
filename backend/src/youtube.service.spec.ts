@@ -4,7 +4,10 @@ import { PrismaService } from './prisma.service';
 
 describe('YoutubeService', () => {
   let service: YoutubeService;
-  let prismaService: Pick<PrismaService, 'youtubeSearchCache'>;
+  let prismaService: Pick<
+    PrismaService,
+    'youtubeSearchCache' | 'youtubeVideoMetadata' | 'youtubeVideoIndex'
+  >;
   let configService: Pick<ConfigService, 'get'>;
 
   beforeEach(() => {
@@ -23,7 +26,19 @@ describe('YoutubeService', () => {
         findFirst: jest.fn(),
         upsert: jest.fn(),
       },
-    } as unknown as Pick<PrismaService, 'youtubeSearchCache'>;
+      youtubeVideoMetadata: {
+        findMany: jest.fn().mockResolvedValue([]),
+        upsert: jest.fn(),
+      },
+      youtubeVideoIndex: {
+        findFirst: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
+        upsert: jest.fn(),
+      },
+    } as unknown as Pick<
+      PrismaService,
+      'youtubeSearchCache' | 'youtubeVideoMetadata' | 'youtubeVideoIndex'
+    >;
 
     service = new YoutubeService(
       configService as ConfigService,
@@ -46,6 +61,7 @@ describe('YoutubeService', () => {
         durationSeconds: 194,
         isShort: false,
         startTimestamp: null,
+        keepOnRefresh: false,
       },
     ];
 
@@ -84,6 +100,7 @@ describe('YoutubeService', () => {
         durationSeconds: 194,
         isShort: false,
         startTimestamp: null,
+        keepOnRefresh: false,
       },
     ];
 

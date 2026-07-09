@@ -31,12 +31,15 @@ Set these in `mobile/.env`:
 EXPO_PUBLIC_API_TARGET=local
 EXPO_PUBLIC_API_LOCAL_URL=http://localhost:3000/api
 EXPO_PUBLIC_API_REMOTE_URL=https://3.22.98.75.nip.io/api
+# Optional: require a separate code to unlock the admin editor screen.
+EXPO_PUBLIC_ADMIN_ACCESS_CODE=your-admin-code
 ```
 
 Use:
 
 - `EXPO_PUBLIC_API_TARGET=local` to test against localhost
 - `EXPO_PUBLIC_API_TARGET=remote` to test against deployed backend
+- `EXPO_PUBLIC_ADMIN_ACCESS_CODE` to gate the admin editor screen
 
 If running on a physical device, replace localhost with your machine LAN IP.
 

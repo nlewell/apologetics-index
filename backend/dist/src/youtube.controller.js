@@ -47,6 +47,36 @@ __decorate([
     (0, class_validator_1.IsBoolean)(),
     __metadata("design:type", Boolean)
 ], YoutubeSearchQueryDto.prototype, "forceRefresh", void 0);
+class YoutubeSearchOverrideDto {
+    query;
+    videoId;
+    item;
+    startTimestamp;
+    keepOnRefresh;
+}
+__decorate([
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], YoutubeSearchOverrideDto.prototype, "query", void 0);
+__decorate([
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], YoutubeSearchOverrideDto.prototype, "videoId", void 0);
+__decorate([
+    (0, class_validator_1.IsObject)(),
+    __metadata("design:type", Object)
+], YoutubeSearchOverrideDto.prototype, "item", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", Object)
+], YoutubeSearchOverrideDto.prototype, "startTimestamp", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_transformer_1.Transform)(({ value }) => value === 'true' || value === '1' || value === true),
+    (0, class_validator_1.IsBoolean)(),
+    __metadata("design:type", Boolean)
+], YoutubeSearchOverrideDto.prototype, "keepOnRefresh", void 0);
 let YoutubeController = class YoutubeController {
     youtubeService;
     constructor(youtubeService) {
@@ -54,6 +84,15 @@ let YoutubeController = class YoutubeController {
     }
     search(query) {
         return this.youtubeService.search(query.q, query.maxResults ?? 5, query.debug ?? false, query.forceRefresh ?? false);
+    }
+    saveSearchOverride(body) {
+        return this.youtubeService.saveSearchOverride({
+            query: body.query,
+            videoId: body.videoId,
+            item: body.item,
+            startTimestamp: body.startTimestamp ?? null,
+            keepOnRefresh: body.keepOnRefresh ?? false,
+        });
     }
 };
 exports.YoutubeController = YoutubeController;
@@ -64,6 +103,13 @@ __decorate([
     __metadata("design:paramtypes", [YoutubeSearchQueryDto]),
     __metadata("design:returntype", void 0)
 ], YoutubeController.prototype, "search", null);
+__decorate([
+    (0, common_1.Put)('search-overrides'),
+    __param(0, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [YoutubeSearchOverrideDto]),
+    __metadata("design:returntype", void 0)
+], YoutubeController.prototype, "saveSearchOverride", null);
 exports.YoutubeController = YoutubeController = __decorate([
     (0, common_1.Controller)('youtube'),
     __metadata("design:paramtypes", [youtube_service_1.YoutubeService])

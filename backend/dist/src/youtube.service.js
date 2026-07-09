@@ -45,7 +45,7 @@ let YoutubeService = class YoutubeService {
             ? null
             : await this.getCachedSearchResponse(cacheKey);
         if (cachedResponse) {
-            const cachedItems = await this.applyVideoMetadata(cachedResponse.items);
+            const cachedItems = await this.applySearchOverrides(cacheKey, cachedResponse.items, forceRefresh);
             return {
                 ...cachedResponse,
                 maxResults,
@@ -97,7 +97,7 @@ let YoutubeService = class YoutubeService {
         })
             .slice(0, maxResults);
         const items = scoredItems.map(({ relevanceScore: _relevanceScore, preferredBoostApplied: _preferredBoostApplied, ...item }) => item);
-        const itemsWithMetadata = await this.applyVideoMetadata(items);
+        const itemsWithMetadata = await this.applySearchOverrides(cacheKey, items, forceRefresh);
         const isDebugEnabled = debug && this.environment !== 'production';
         const response = {
             query: normalizedQuery,
@@ -127,11 +127,31 @@ let YoutubeService = class YoutubeService {
         return response;
     }
     async getCachedSearchResponse(cacheKey) {
-        const cachedEntry = await this.prismaService.youtubeSearchCache.findFirst({
+        const cachedEntry = await this.prismaService.youtubeVideoIndex.findFirst({
             where: { query: cacheKey },
         });
         if (!cachedEntry) {
-            return null;
+            const legacyEntry = await this.prismaService.youtubeSearchCache.findFirst({
+                where: { query: cacheKey },
+            });
+            if (!legacyEntry) {
+                return null;
+            }
+            const legacyItems = Array.isArray(legacyEntry.items)
+                ? legacyEntry.items
+                : [];
+            await this.saveVideoIndex(cacheKey, legacyItems).catch(() => {
+            });
+            return {
+                query: legacyEntry.query,
+                maxResults: legacyItems.length,
+                whitelist: {
+                    sourceFile: this.whitelistPath,
+                    configuredEntries: [],
+                    resolvedChannelIds: [],
+                },
+                items: legacyItems,
+            };
         }
         const parsedItems = Array.isArray(cachedEntry.items)
             ? cachedEntry.items
@@ -148,7 +168,10 @@ let YoutubeService = class YoutubeService {
         };
     }
     async saveSearchResponse(cacheKey, response) {
-        const itemsToStore = response.items.slice(0, 5).map((item) => ({
+        await this.saveVideoIndex(cacheKey, response.items.slice(0, 25));
+    }
+    async saveVideoIndex(cacheKey, items) {
+        const itemsToStore = items.map((item) => ({
             videoId: item.videoId,
             title: item.title,
             description: item.description,
@@ -161,18 +184,48 @@ let YoutubeService = class YoutubeService {
             durationSeconds: item.durationSeconds,
             isShort: item.isShort,
             startTimestamp: item.startTimestamp,
+            keepOnRefresh: item.keepOnRefresh,
         }));
-        await this.prismaService.youtubeSearchCache.upsert({
+        await this.prismaService.youtubeVideoIndex.upsert({
             where: { query: cacheKey },
             update: {
                 items: itemsToStore,
-                updatedAt: new Date(),
+                refreshedAt: new Date(),
             },
             create: {
                 query: cacheKey,
                 items: itemsToStore,
+                refreshedAt: new Date(),
             },
         });
+    }
+    async saveSearchOverride(input) {
+        const cacheKey = this.normalizeQueryKey(input.query);
+        const mergedItem = this.applyOverrideToItem(input.item, {
+            startTimestamp: input.startTimestamp,
+            keepOnRefresh: input.keepOnRefresh,
+        });
+        await this.prismaService.youtubeVideoMetadata.upsert({
+            where: {
+                query_videoId: {
+                    query: cacheKey,
+                    videoId: input.videoId,
+                },
+            },
+            update: {
+                item: input.item,
+                startTimestamp: input.startTimestamp,
+                keepOnRefresh: input.keepOnRefresh,
+            },
+            create: {
+                query: cacheKey,
+                videoId: input.videoId,
+                item: input.item,
+                startTimestamp: input.startTimestamp,
+                keepOnRefresh: input.keepOnRefresh,
+            },
+        });
+        return mergedItem;
     }
     async searchWithinChannel(query, cacheKey, channelId, maxResults, apiKey) {
         const cachedChannelSearch = await this.getCachedChannelSearch(cacheKey, channelId);
@@ -216,6 +269,7 @@ let YoutubeService = class YoutubeService {
                 durationSeconds: 0,
                 isShort: false,
                 startTimestamp: null,
+                keepOnRefresh: false,
             };
         })
             .filter((item) => item !== null);
@@ -232,6 +286,7 @@ let YoutubeService = class YoutubeService {
                 durationSeconds,
                 isShort: durationSeconds > 0 && durationSeconds <= this.shortsMaxSeconds,
                 startTimestamp: item.startTimestamp ?? null,
+                keepOnRefresh: item.keepOnRefresh ?? false,
             };
             return {
                 ...enrichedItem,
@@ -282,43 +337,92 @@ let YoutubeService = class YoutubeService {
         catch (error) {
         }
     }
-    async applyVideoMetadata(items) {
+    async applySearchOverrides(cacheKey, items, forceRefresh) {
         if (!items.length) {
-            return items;
+            return this.loadPreservedOverrideItems(cacheKey, [], forceRefresh);
         }
         const videoIds = items.map((item) => item.videoId);
-        const metadataRows = await this.prismaService.youtubeVideoMetadata.findMany({
+        const overrideRows = await this.prismaService.youtubeVideoMetadata.findMany({
             where: {
-                videoId: {
-                    in: videoIds,
-                },
+                query: cacheKey,
+                videoId: { in: videoIds },
             },
         });
-        if (!metadataRows.length) {
-            return items;
-        }
-        const metadataByVideoId = new Map(metadataRows.map((row) => [
-            row.videoId,
-            row.startTimestamp,
-        ]));
-        return items.map((item) => {
-            const startTimestamp = metadataByVideoId.get(item.videoId) ?? null;
-            if (!startTimestamp) {
-                return item;
-            }
-            const startSeconds = this.parseStartTimestampToSeconds(startTimestamp);
-            if (startSeconds === null) {
+        const overridesByVideoId = new Map(overrideRows.map((row) => [row.videoId, row]));
+        const mergedItems = items.map((item) => {
+            const override = overridesByVideoId.get(item.videoId);
+            if (!override) {
                 return {
                     ...item,
-                    startTimestamp,
+                    startTimestamp: item.startTimestamp ?? null,
+                    keepOnRefresh: item.keepOnRefresh ?? false,
                 };
             }
-            return {
-                ...item,
-                startTimestamp,
-                videoUrl: this.appendStartSeconds(item.videoUrl, startSeconds),
-            };
+            return this.applyOverrideToItem(item, {
+                startTimestamp: override.startTimestamp ?? null,
+                keepOnRefresh: override.keepOnRefresh,
+            });
         });
+        return this.loadPreservedOverrideItems(cacheKey, mergedItems, forceRefresh);
+    }
+    async loadPreservedOverrideItems(cacheKey, items, forceRefresh) {
+        const overrideRows = await this.prismaService.youtubeVideoMetadata.findMany({
+            where: {
+                query: cacheKey,
+                keepOnRefresh: true,
+            },
+        });
+        if (!overrideRows.length) {
+            return items;
+        }
+        const seenVideoIds = new Set(items.map((item) => item.videoId));
+        const preservedItems = overrideRows
+            .filter((row) => forceRefresh || !seenVideoIds.has(row.videoId))
+            .map((row) => this.overrideRowToSearchResult(row));
+        if (!preservedItems.length) {
+            return items;
+        }
+        return [...items, ...preservedItems.filter((item) => !seenVideoIds.has(item.videoId))];
+    }
+    overrideRowToSearchResult(row) {
+        const snapshot = row.item;
+        const item = {
+            videoId: snapshot.videoId ?? '',
+            title: snapshot.title ?? '',
+            description: snapshot.description ?? '',
+            channelTitle: snapshot.channelTitle ?? '',
+            channelId: snapshot.channelId ?? '',
+            publishedAt: snapshot.publishedAt ?? '',
+            thumbnailUrl: snapshot.thumbnailUrl ?? null,
+            videoUrl: snapshot.videoUrl ?? '',
+            duration: snapshot.duration ?? '',
+            durationSeconds: snapshot.durationSeconds ?? 0,
+            isShort: snapshot.isShort ?? false,
+            startTimestamp: row.startTimestamp ?? null,
+            keepOnRefresh: row.keepOnRefresh,
+        };
+        return this.applyStartTimestampToItem(item);
+    }
+    applyOverrideToItem(item, override) {
+        const merged = {
+            ...item,
+            startTimestamp: override.startTimestamp,
+            keepOnRefresh: override.keepOnRefresh,
+        };
+        return this.applyStartTimestampToItem(merged);
+    }
+    applyStartTimestampToItem(item) {
+        if (!item.startTimestamp) {
+            return item;
+        }
+        const startSeconds = this.parseStartTimestampToSeconds(item.startTimestamp);
+        if (startSeconds === null) {
+            return item;
+        }
+        return {
+            ...item,
+            videoUrl: this.appendStartSeconds(item.videoUrl, startSeconds),
+        };
     }
     normalizeQueryKey(query) {
         return query.trim().toLowerCase().replace(/\s+/g, ' ');

@@ -6,12 +6,14 @@ import {
   FlatList,
   Image,
   Linking,
+  Modal,
   SafeAreaView,
   SectionList,
   Share,
   StyleSheet,
   Text,
   TextInput,
+  Switch,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -19,6 +21,7 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import {
   useIndexItemsTopicsWithSubtopics,
+  useSaveYoutubeSearchOverride,
   useYoutubeSearch,
 } from '../hooks';
 import { RootStackParamList } from '../types/navigation';
@@ -32,12 +35,19 @@ type VideoSection = {
   data: YoutubeSearchItem[];
 };
 
-export const SearchScreen: React.FC<SearchScreenProps> = () => {
+export const SearchScreen: React.FC<SearchScreenProps> = ({ navigation }) => {
   const isYoutubeDebugEnabled =
     process.env.EXPO_PUBLIC_YOUTUBE_DEBUG === 'true';
+  const adminAccessCode =
+    process.env.EXPO_PUBLIC_ADMIN_ACCESS_CODE ?? process.env.EXPO_PUBLIC_API_KEY ?? '';
   const [searchQuery, setSearchQuery] = useState('');
   const [youtubeQuery, setYoutubeQuery] = useState('');
   const [forceRefresh, setForceRefresh] = useState(false);
+  const [editingItem, setEditingItem] = useState<YoutubeSearchItem | null>(null);
+  const [editingStartTimestamp, setEditingStartTimestamp] = useState('');
+  const [editingKeepOnRefresh, setEditingKeepOnRefresh] = useState(false);
+  const [adminUnlockVisible, setAdminUnlockVisible] = useState(false);
+  const [adminAccessInput, setAdminAccessInput] = useState('');
   const [selectedTopic, setSelectedTopic] = useState<string | null>(null);
   const [selectedSubtopic, setSelectedSubtopic] = useState<string | null>(null);
   const [selectedCharge, setSelectedCharge] = useState<string | null>(null);
@@ -76,6 +86,7 @@ export const SearchScreen: React.FC<SearchScreenProps> = () => {
     error: videosError,
     refetch: refetchVideos,
   } = useYoutubeSearch(youtubeQuery, 5, isYoutubeDebugEnabled, forceRefresh);
+  const saveYoutubeSearchOverride = useSaveYoutubeSearchOverride();
 
   const hasYoutubeQuery = youtubeQuery.length > 0;
 
@@ -236,6 +247,57 @@ export const SearchScreen: React.FC<SearchScreenProps> = () => {
     }
   };
 
+  const openEditVideo = (item: YoutubeSearchItem) => {
+    setEditingItem(item);
+    setEditingStartTimestamp(item.startTimestamp ?? '');
+    setEditingKeepOnRefresh(Boolean(item.keepOnRefresh));
+  };
+
+  const closeEditVideo = () => {
+    setEditingItem(null);
+    setEditingStartTimestamp('');
+    setEditingKeepOnRefresh(false);
+  };
+
+  const saveEditVideo = async () => {
+    if (!editingItem || !youtubeQuery.trim()) {
+      return;
+    }
+
+    await saveYoutubeSearchOverride.mutateAsync({
+      query: youtubeQuery.trim(),
+      videoId: editingItem.videoId,
+      item: editingItem,
+      startTimestamp: editingStartTimestamp.trim().length > 0 ? editingStartTimestamp.trim() : null,
+      keepOnRefresh: editingKeepOnRefresh,
+    });
+
+    closeEditVideo();
+    await refetchVideos();
+  };
+
+  const openAdminUnlock = () => {
+    setAdminAccessInput('');
+    setAdminUnlockVisible(true);
+  };
+
+  const closeAdminUnlock = () => {
+    setAdminUnlockVisible(false);
+    setAdminAccessInput('');
+  };
+
+  const unlockAdmin = () => {
+    const provided = adminAccessInput.trim();
+
+    if (!adminAccessCode || !provided || provided !== adminAccessCode) {
+      Alert.alert('Access denied', 'The admin access code is incorrect.');
+      return;
+    }
+
+    closeAdminUnlock();
+    navigation.navigate('YoutubeAdmin');
+  };
+
   const renderVideoCard = ({ item }: { item: YoutubeSearchItem }) => {
     const url = item.videoUrl || `https://www.youtube.com/watch?v=${item.videoId}`;
 
@@ -252,6 +314,9 @@ export const SearchScreen: React.FC<SearchScreenProps> = () => {
 
           <View style={styles.badgeRow}>
             <Text style={styles.approvedBadge}>Approved channel</Text>
+            {item.keepOnRefresh ? (
+              <Text style={styles.pinnedBadge}>Pinned</Text>
+            ) : null}
             {item.isShort ? (
               <Text style={styles.shortBadge}>Short</Text>
             ) : (
@@ -298,6 +363,13 @@ export const SearchScreen: React.FC<SearchScreenProps> = () => {
                 activeOpacity={0.8}
               >
                 <Text style={styles.linkActionText}>Share</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.linkActionButton}
+                onPress={() => openEditVideo(item)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.linkActionText}>Edit</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -666,6 +738,13 @@ export const SearchScreen: React.FC<SearchScreenProps> = () => {
                 {isVideosLoading ? 'Refreshing...' : 'Refresh'}
               </Text>
             </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.resultsAdminButton}
+              onPress={openAdminUnlock}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.resultsAdminButtonText}>Admin</Text>
+            </TouchableOpacity>
           </View>
 
           {topMatch ? (
@@ -714,6 +793,109 @@ export const SearchScreen: React.FC<SearchScreenProps> = () => {
       )}
         </>
       ) : null}
+
+      <Modal
+        visible={editingItem !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={closeEditVideo}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Edit video override</Text>
+            <Text style={styles.modalSubtitle} numberOfLines={2}>
+              {editingItem?.title ?? ''}
+            </Text>
+
+            <Text style={styles.modalLabel}>Start timestamp</Text>
+            <TextInput
+              style={styles.modalInput}
+              value={editingStartTimestamp}
+              onChangeText={setEditingStartTimestamp}
+              placeholder="0:00"
+              placeholderTextColor="#94a3b8"
+            />
+
+            <View style={styles.switchRow}>
+              <View style={styles.switchTextBlock}>
+                <Text style={styles.modalLabel}>Keep on refresh</Text>
+                <Text style={styles.modalHint}>
+                  Leave pinned results in place when the list is refreshed.
+                </Text>
+              </View>
+              <Switch
+                value={editingKeepOnRefresh}
+                onValueChange={setEditingKeepOnRefresh}
+              />
+            </View>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.modalCancelButton}
+                onPress={closeEditVideo}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.modalSaveButton}
+                onPress={saveEditVideo}
+                activeOpacity={0.8}
+                disabled={saveYoutubeSearchOverride.isPending}
+              >
+                <Text style={styles.modalSaveText}>
+                  {saveYoutubeSearchOverride.isPending ? 'Saving...' : 'Save'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={adminUnlockVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={closeAdminUnlock}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Admin unlock</Text>
+            <Text style={styles.modalSubtitle}>
+              Enter the admin access code to open the YouTube editor.
+            </Text>
+
+            <Text style={styles.modalLabel}>Access code</Text>
+            <TextInput
+              style={styles.modalInput}
+              value={adminAccessInput}
+              onChangeText={setAdminAccessInput}
+              placeholder="Enter access code"
+              placeholderTextColor="#94a3b8"
+              secureTextEntry
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.modalCancelButton}
+                onPress={closeAdminUnlock}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.modalSaveButton}
+                onPress={unlockAdmin}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.modalSaveText}>Unlock</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -951,6 +1133,20 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '800',
   },
+  resultsAdminButton: {
+    alignSelf: 'flex-start',
+    marginTop: 8,
+    marginLeft: 8,
+    backgroundColor: '#e2e8f0',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  resultsAdminButtonText: {
+    color: '#0f172a',
+    fontSize: 12,
+    fontWeight: '800',
+  },
   topMatchContainer: {
     paddingTop: 8,
   },
@@ -1008,6 +1204,16 @@ const styles = StyleSheet.create({
   approvedBadge: {
     backgroundColor: '#dcfce7',
     color: '#166534',
+    fontSize: 11,
+    fontWeight: '700',
+    borderRadius: 999,
+    overflow: 'hidden',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  pinnedBadge: {
+    backgroundColor: '#dbeafe',
+    color: '#1e3a8a',
     fontSize: 11,
     fontWeight: '700',
     borderRadius: 999,
@@ -1084,6 +1290,91 @@ const styles = StyleSheet.create({
     color: '#1d4ed8',
     fontSize: 12,
     fontWeight: '700',
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+  },
+  modalCard: {
+    width: '100%',
+    maxWidth: 420,
+    backgroundColor: '#ffffff',
+    borderRadius: 18,
+    padding: 18,
+    gap: 10,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#0f172a',
+  },
+  modalSubtitle: {
+    fontSize: 13,
+    color: '#475569',
+  },
+  modalLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#334155',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+  modalInput: {
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: '#0f172a',
+    fontSize: 14,
+  },
+  switchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 14,
+  },
+  switchTextBlock: {
+    flex: 1,
+    gap: 4,
+  },
+  modalHint: {
+    fontSize: 12,
+    color: '#64748b',
+    lineHeight: 16,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 4,
+  },
+  modalCancelButton: {
+    flex: 1,
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+    backgroundColor: '#e2e8f0',
+  },
+  modalCancelText: {
+    color: '#0f172a',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  modalSaveButton: {
+    flex: 1,
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+    backgroundColor: '#2563eb',
+  },
+  modalSaveText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '800',
   },
   inlineStateContainer: {
     paddingHorizontal: 14,

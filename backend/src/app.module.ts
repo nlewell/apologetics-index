@@ -11,6 +11,7 @@ import { ContentVersionService } from './content-version.service';
 import { ApiKeyGuard } from './api-key.guard';
 import { YoutubeController } from './youtube.controller';
 import { YoutubeService } from './youtube.service';
+import { YoutubeIndexRefreshService } from './youtube-index-refresh.service';
 
 @Module({
   imports: [ConfigModule.forRoot({ isGlobal: true })],
@@ -26,6 +27,7 @@ import { YoutubeService } from './youtube.service';
     IndexItemsService,
     ContentVersionService,
     YoutubeService,
+    YoutubeIndexRefreshService,
     {
       provide: APP_GUARD,
       useClass: ApiKeyGuard,

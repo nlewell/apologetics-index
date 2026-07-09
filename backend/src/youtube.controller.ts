@@ -1,7 +1,16 @@
 import { Transform, Type } from 'class-transformer';
-import { IsBoolean, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
-import { Controller, Get, Query } from '@nestjs/common';
+import {
+  IsBoolean,
+  IsInt,
+  IsObject,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+} from 'class-validator';
+import { Body, Controller, Get, Put, Query } from '@nestjs/common';
 import { YoutubeService } from './youtube.service';
+import type { YoutubeSearchResult } from './youtube.service';
 
 class YoutubeSearchQueryDto {
   @IsString()
@@ -25,6 +34,26 @@ class YoutubeSearchQueryDto {
   forceRefresh?: boolean;
 }
 
+class YoutubeSearchOverrideDto {
+  @IsString()
+  query!: string;
+
+  @IsString()
+  videoId!: string;
+
+  @IsObject()
+  item!: YoutubeSearchResult;
+
+  @IsOptional()
+  @IsString()
+  startTimestamp?: string | null;
+
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === '1' || value === true)
+  @IsBoolean()
+  keepOnRefresh?: boolean;
+}
+
 @Controller('youtube')
 export class YoutubeController {
   constructor(private readonly youtubeService: YoutubeService) {}
@@ -37,5 +66,16 @@ export class YoutubeController {
       query.debug ?? false,
       query.forceRefresh ?? false,
     );
+  }
+
+  @Put('search-overrides')
+  saveSearchOverride(@Body() body: YoutubeSearchOverrideDto) {
+    return this.youtubeService.saveSearchOverride({
+      query: body.query,
+      videoId: body.videoId,
+      item: body.item,
+      startTimestamp: body.startTimestamp ?? null,
+      keepOnRefresh: body.keepOnRefresh ?? false,
+    });
   }
 }

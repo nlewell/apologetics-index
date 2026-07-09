@@ -6,4 +6,5 @@ export type RootStackParamList = {
     item: IndexItem;
   };
   Search: undefined;
+  YoutubeAdmin: undefined;
 };

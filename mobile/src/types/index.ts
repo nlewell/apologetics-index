@@ -71,6 +71,7 @@ export interface YoutubeSearchItem {
   durationSeconds: number;
   isShort: boolean;
   startTimestamp: string | null;
+  keepOnRefresh: boolean;
 }
 
 export interface YoutubeSearchResponse {
