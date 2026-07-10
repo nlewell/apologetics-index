@@ -67,6 +67,8 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ navigation }) => {
     isLoading: isTopicsLoading,
     isFetching: isTopicsFetching,
     isError: isTopicsError,
+    status: topicsStatus,
+    fetchStatus: topicsFetchStatus,
     error: topicsError,
     refetch: refetchTopics,
   } = useIndexItemsTopicsWithSubtopics();
@@ -406,6 +408,13 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ navigation }) => {
   };
 
   const topicList = topicTree ?? [];
+  const isInitialTopicLoad = topicList.length === 0;
+  const isInitialTopicsLoading =
+    isInitialTopicLoad && isTopicsLoading && topicsFetchStatus === 'fetching';
+  const isInitialTopicsError =
+    isInitialTopicLoad &&
+    (isTopicsError ||
+      (topicsStatus === 'pending' && topicsFetchStatus !== 'fetching'));
   const hierarchyFilter = searchQuery.trim().toLowerCase();
   const isFilteringHierarchy = hierarchyFilter.length > 0;
 
@@ -694,15 +703,19 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ navigation }) => {
           </TouchableOpacity>
         </View>
 
-        {isTopicsLoading ? (
+        {isInitialTopicsLoading ? (
           <View style={styles.inlineStateContainer}>
             <ActivityIndicator size="small" color="#2563eb" />
             <Text style={styles.inlineStateText}>Loading topics...</Text>
           </View>
-        ) : isTopicsError ? (
+        ) : isInitialTopicsError ? (
           <View style={styles.inlineStateContainer}>
             <View style={styles.errorDetailWrap}>
-              <Text style={styles.errorDetail}>{summarizeError(topicsError)}</Text>
+              <Text style={styles.errorDetail}>
+                {topicsError
+                  ? summarizeError(topicsError)
+                  : 'Unable to load topics. Please check your connection and try again.'}
+              </Text>
               <TouchableOpacity
                 onPress={() => setShowTopicErrorDetails((previous) => !previous)}
                 activeOpacity={0.8}
@@ -712,7 +725,11 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ navigation }) => {
                 </Text>
               </TouchableOpacity>
               {showTopicErrorDetails ? (
-                <Text style={styles.errorDetailExpanded}>{formatApiError(topicsError)}</Text>
+                <Text style={styles.errorDetailExpanded}>
+                  {topicsError
+                    ? formatApiError(topicsError)
+                    : 'The topics request did not complete successfully. Retry to fetch the latest topic list.'}
+                </Text>
               ) : null}
             </View>
             <TouchableOpacity
