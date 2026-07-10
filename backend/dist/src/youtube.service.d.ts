@@ -63,6 +63,9 @@ export declare class YoutubeService {
     private overrideRowToSearchResult;
     private applyOverrideToItem;
     private applyStartTimestampToItem;
+    private parseCachedSearchItems;
+    private coerceSearchResult;
+    private coerceScoredSearchResult;
     private normalizeQueryKey;
     private parseStartTimestampToSeconds;
     private appendStartSeconds;

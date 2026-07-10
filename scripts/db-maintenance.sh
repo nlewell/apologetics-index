@@ -81,7 +81,7 @@ run_sql() {
 }
 
 show_status() {
-  run_sql "SELECT 'ApologeticIndexItem' AS table_name, COUNT(*) AS rows FROM \"ApologeticIndexItem\" UNION ALL SELECT 'YoutubeSearchCache', COUNT(*) FROM \"YoutubeSearchCache\" UNION ALL SELECT 'YoutubeChannelCache', COUNT(*) FROM \"YoutubeChannelCache\" UNION ALL SELECT 'YoutubeChannelSearchCache', COUNT(*) FROM \"YoutubeChannelSearchCache\" ORDER BY table_name;"
+  run_sql "SELECT 'ApologeticIndexItem' AS table_name, COUNT(*) AS rows FROM \"ApologeticIndexItem\" UNION ALL SELECT 'YoutubeSearchCache', COUNT(*) FROM \"YoutubeSearchCache\" UNION ALL SELECT 'YoutubeChannelCache', COUNT(*) FROM \"YoutubeChannelCache\" UNION ALL SELECT 'YoutubeChannelSearchCache', COUNT(*) FROM \"YoutubeChannelSearchCache\" UNION ALL SELECT 'YoutubeVideoIndex', COUNT(*) FROM \"YoutubeVideoIndex\" UNION ALL SELECT 'YoutubeVideoMetadata', COUNT(*) FROM \"YoutubeVideoMetadata\" ORDER BY table_name;"
 }
 
 case "$ACTION" in
@@ -96,11 +96,13 @@ case "$ACTION" in
     run_sql "DELETE FROM \"YoutubeSearchCache\" WHERE \"updatedAt\" < NOW() - INTERVAL '$PRUNE_DAYS days';"
     run_sql "DELETE FROM \"YoutubeChannelCache\" WHERE \"updatedAt\" < NOW() - INTERVAL '$PRUNE_DAYS days';"
     run_sql "DELETE FROM \"YoutubeChannelSearchCache\" WHERE \"updatedAt\" < NOW() - INTERVAL '$PRUNE_DAYS days';"
+    run_sql "DELETE FROM \"YoutubeVideoIndex\" WHERE \"updatedAt\" < NOW() - INTERVAL '$PRUNE_DAYS days';"
+    run_sql "DELETE FROM \"YoutubeVideoMetadata\" WHERE \"updatedAt\" < NOW() - INTERVAL '$PRUNE_DAYS days';"
     show_status
     ;;
   clear-cache)
     confirm_if_needed "This will permanently delete all YouTube cache rows."
-    run_sql "TRUNCATE TABLE \"YoutubeSearchCache\", \"YoutubeChannelCache\", \"YoutubeChannelSearchCache\" RESTART IDENTITY;"
+    run_sql "TRUNCATE TABLE \"YoutubeSearchCache\", \"YoutubeChannelCache\", \"YoutubeChannelSearchCache\", \"YoutubeVideoIndex\", \"YoutubeVideoMetadata\" RESTART IDENTITY;"
     show_status
     ;;
   clear-index)
@@ -110,7 +112,7 @@ case "$ACTION" in
     ;;
   clear-all-data)
     confirm_if_needed "This will permanently delete all index and cache data."
-    run_sql "TRUNCATE TABLE \"ApologeticIndexItem\", \"YoutubeSearchCache\", \"YoutubeChannelCache\", \"YoutubeChannelSearchCache\" RESTART IDENTITY;"
+    run_sql "TRUNCATE TABLE \"ApologeticIndexItem\", \"YoutubeSearchCache\", \"YoutubeChannelCache\", \"YoutubeChannelSearchCache\", \"YoutubeVideoIndex\", \"YoutubeVideoMetadata\" RESTART IDENTITY;"
     show_status
     ;;
   *)

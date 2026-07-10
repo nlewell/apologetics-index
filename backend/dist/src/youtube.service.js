@@ -137,9 +137,10 @@ let YoutubeService = class YoutubeService {
             if (!legacyEntry) {
                 return null;
             }
-            const legacyItems = Array.isArray(legacyEntry.items)
-                ? legacyEntry.items
-                : [];
+            const legacyItems = this.parseCachedSearchItems(legacyEntry.items);
+            if (!legacyItems.length) {
+                return null;
+            }
             await this.saveVideoIndex(cacheKey, legacyItems).catch(() => {
             });
             return {
@@ -153,9 +154,10 @@ let YoutubeService = class YoutubeService {
                 items: legacyItems,
             };
         }
-        const parsedItems = Array.isArray(cachedEntry.items)
-            ? cachedEntry.items
-            : [];
+        const parsedItems = this.parseCachedSearchItems(cachedEntry.items);
+        if (!parsedItems.length) {
+            return null;
+        }
         return {
             query: cachedEntry.query,
             maxResults: parsedItems.length,
@@ -171,7 +173,13 @@ let YoutubeService = class YoutubeService {
         await this.saveVideoIndex(cacheKey, response.items.slice(0, 25));
     }
     async saveVideoIndex(cacheKey, items) {
-        const itemsToStore = items.map((item) => ({
+        const normalizedItems = items
+            .map((item) => this.coerceSearchResult(item))
+            .filter((item) => item !== null);
+        if (!normalizedItems.length) {
+            return;
+        }
+        const itemsToStore = normalizedItems.map((item) => ({
             videoId: item.videoId,
             title: item.title,
             description: item.description,
@@ -309,9 +317,12 @@ let YoutubeService = class YoutubeService {
             if (!cached) {
                 return [];
             }
-            return Array.isArray(cached.items)
-                ? cached.items
-                : [];
+            if (!Array.isArray(cached.items)) {
+                return [];
+            }
+            return cached.items
+                .map((item) => this.coerceScoredSearchResult(item))
+                .filter((item) => item !== null);
         }
         catch (error) {
             return [];
@@ -319,18 +330,24 @@ let YoutubeService = class YoutubeService {
     }
     async saveChannelSearch(cacheKey, channelId, items) {
         try {
+            const validItems = items
+                .map((item) => this.coerceScoredSearchResult(item))
+                .filter((item) => item !== null);
+            if (!validItems.length) {
+                return;
+            }
             await this.prismaService.youtubeChannelSearchCache.upsert({
                 where: {
                     query_channelId: { query: cacheKey, channelId },
                 },
                 update: {
-                    items,
+                    items: validItems,
                     updatedAt: new Date(),
                 },
                 create: {
                     query: cacheKey,
                     channelId,
-                    items,
+                    items: validItems,
                 },
             });
         }
@@ -422,6 +439,54 @@ let YoutubeService = class YoutubeService {
         return {
             ...item,
             videoUrl: this.appendStartSeconds(item.videoUrl, startSeconds),
+        };
+    }
+    parseCachedSearchItems(items) {
+        if (!Array.isArray(items)) {
+            return [];
+        }
+        return items
+            .map((item) => this.coerceSearchResult(item))
+            .filter((item) => item !== null);
+    }
+    coerceSearchResult(item) {
+        if (!item || typeof item !== 'object') {
+            return null;
+        }
+        const row = item;
+        if (!row.videoId || !row.title || !row.channelId) {
+            return null;
+        }
+        const normalized = {
+            videoId: row.videoId,
+            title: row.title,
+            description: row.description ?? '',
+            channelTitle: row.channelTitle ?? '',
+            channelId: row.channelId,
+            publishedAt: row.publishedAt ?? '',
+            thumbnailUrl: row.thumbnailUrl ?? null,
+            videoUrl: row.videoUrl ?? `https://www.youtube.com/watch?v=${row.videoId}`,
+            duration: row.duration ?? '',
+            durationSeconds: Number(row.durationSeconds ?? 0),
+            isShort: Boolean(row.isShort ?? false),
+            startTimestamp: row.startTimestamp ?? null,
+            keepOnRefresh: Boolean(row.keepOnRefresh ?? false),
+        };
+        return this.applyStartTimestampToItem(normalized);
+    }
+    coerceScoredSearchResult(item) {
+        if (!item || typeof item !== 'object') {
+            return null;
+        }
+        const base = this.coerceSearchResult(item);
+        if (!base) {
+            return null;
+        }
+        const scoredItem = item;
+        return {
+            ...base,
+            relevanceScore: Number(scoredItem.relevanceScore ?? 0),
+            preferredBoostApplied: Boolean(scoredItem.preferredBoostApplied ?? false),
         };
     }
     normalizeQueryKey(query) {

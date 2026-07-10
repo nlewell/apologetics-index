@@ -261,9 +261,11 @@ export class YoutubeService {
         return null;
       }
 
-      const legacyItems = Array.isArray(legacyEntry.items)
-        ? (legacyEntry.items as Array<YoutubeSearchResult>)
-        : [];
+      const legacyItems = this.parseCachedSearchItems(legacyEntry.items);
+
+      if (!legacyItems.length) {
+        return null;
+      }
 
       await this.saveVideoIndex(cacheKey, legacyItems).catch(() => {
         // Best-effort migration from the legacy local cache.
@@ -281,9 +283,11 @@ export class YoutubeService {
       };
     }
 
-    const parsedItems = Array.isArray(cachedEntry.items)
-      ? (cachedEntry.items as Array<YoutubeSearchResult>)
-      : [];
+    const parsedItems = this.parseCachedSearchItems(cachedEntry.items);
+
+    if (!parsedItems.length) {
+      return null;
+    }
 
     return {
       query: cachedEntry.query,
@@ -308,7 +312,15 @@ export class YoutubeService {
     cacheKey: string,
     items: YoutubeSearchResult[],
   ): Promise<void> {
-    const itemsToStore = items.map((item) => ({
+    const normalizedItems = items
+      .map((item) => this.coerceSearchResult(item))
+      .filter((item): item is YoutubeSearchResult => item !== null);
+
+    if (!normalizedItems.length) {
+      return;
+    }
+
+    const itemsToStore = normalizedItems.map((item) => ({
       videoId: item.videoId,
       title: item.title,
       description: item.description,
@@ -490,9 +502,13 @@ export class YoutubeService {
         return [];
       }
 
-      return Array.isArray(cached.items)
-        ? (cached.items as ScoredYoutubeSearchResult[])
-        : [];
+      if (!Array.isArray(cached.items)) {
+        return [];
+      }
+
+      return cached.items
+        .map((item) => this.coerceScoredSearchResult(item))
+        .filter((item): item is ScoredYoutubeSearchResult => item !== null);
     } catch (error) {
       // Silently fail cache lookups - they're optional optimizations
       return [];
@@ -505,18 +521,26 @@ export class YoutubeService {
     items: ScoredYoutubeSearchResult[],
   ): Promise<void> {
     try {
+      const validItems = items
+        .map((item) => this.coerceScoredSearchResult(item))
+        .filter((item): item is ScoredYoutubeSearchResult => item !== null);
+
+      if (!validItems.length) {
+        return;
+      }
+
       await this.prismaService.youtubeChannelSearchCache.upsert({
         where: {
           query_channelId: { query: cacheKey, channelId },
         },
         update: {
-          items,
+          items: validItems,
           updatedAt: new Date(),
         },
         create: {
           query: cacheKey,
           channelId,
-          items,
+          items: validItems,
         },
       });
     } catch (error) {
@@ -644,6 +668,63 @@ export class YoutubeService {
     return {
       ...item,
       videoUrl: this.appendStartSeconds(item.videoUrl, startSeconds),
+    };
+  }
+
+  private parseCachedSearchItems(items: unknown): YoutubeSearchResult[] {
+    if (!Array.isArray(items)) {
+      return [];
+    }
+
+    return items
+      .map((item) => this.coerceSearchResult(item))
+      .filter((item): item is YoutubeSearchResult => item !== null);
+  }
+
+  private coerceSearchResult(item: unknown): YoutubeSearchResult | null {
+    if (!item || typeof item !== 'object') {
+      return null;
+    }
+
+    const row = item as Partial<YoutubeSearchResult>;
+    if (!row.videoId || !row.title || !row.channelId) {
+      return null;
+    }
+
+    const normalized: YoutubeSearchResult = {
+      videoId: row.videoId,
+      title: row.title,
+      description: row.description ?? '',
+      channelTitle: row.channelTitle ?? '',
+      channelId: row.channelId,
+      publishedAt: row.publishedAt ?? '',
+      thumbnailUrl: row.thumbnailUrl ?? null,
+      videoUrl: row.videoUrl ?? `https://www.youtube.com/watch?v=${row.videoId}`,
+      duration: row.duration ?? '',
+      durationSeconds: Number(row.durationSeconds ?? 0),
+      isShort: Boolean(row.isShort ?? false),
+      startTimestamp: row.startTimestamp ?? null,
+      keepOnRefresh: Boolean(row.keepOnRefresh ?? false),
+    };
+
+    return this.applyStartTimestampToItem(normalized);
+  }
+
+  private coerceScoredSearchResult(item: unknown): ScoredYoutubeSearchResult | null {
+    if (!item || typeof item !== 'object') {
+      return null;
+    }
+
+    const base = this.coerceSearchResult(item);
+    if (!base) {
+      return null;
+    }
+
+    const scoredItem = item as Partial<ScoredYoutubeSearchResult>;
+    return {
+      ...base,
+      relevanceScore: Number(scoredItem.relevanceScore ?? 0),
+      preferredBoostApplied: Boolean(scoredItem.preferredBoostApplied ?? false),
     };
   }
 
