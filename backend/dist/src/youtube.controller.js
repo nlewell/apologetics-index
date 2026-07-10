@@ -77,6 +77,28 @@ __decorate([
     (0, class_validator_1.IsBoolean)(),
     __metadata("design:type", Boolean)
 ], YoutubeSearchOverrideDto.prototype, "keepOnRefresh", void 0);
+class AddYoutubeWhitelistEntryDto {
+    entry;
+}
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", String)
+], AddYoutubeWhitelistEntryDto.prototype, "entry", void 0);
+class UpdateYoutubeWhitelistEntryDto {
+    isEnabled;
+}
+__decorate([
+    (0, class_validator_1.IsBoolean)(),
+    __metadata("design:type", Boolean)
+], UpdateYoutubeWhitelistEntryDto.prototype, "isEnabled", void 0);
+class UpdateAllYoutubeWhitelistEntriesDto {
+    isEnabled;
+}
+__decorate([
+    (0, class_validator_1.IsBoolean)(),
+    __metadata("design:type", Boolean)
+], UpdateAllYoutubeWhitelistEntriesDto.prototype, "isEnabled", void 0);
 let YoutubeController = class YoutubeController {
     youtubeService;
     constructor(youtubeService) {
@@ -94,6 +116,18 @@ let YoutubeController = class YoutubeController {
             keepOnRefresh: body.keepOnRefresh ?? false,
         });
     }
+    listWhitelistEntries() {
+        return this.youtubeService.listWhitelistEntries();
+    }
+    addWhitelistEntry(body) {
+        return this.youtubeService.addWhitelistEntry(body.entry);
+    }
+    updateWhitelistEntry(id, body) {
+        return this.youtubeService.updateWhitelistEntry(id, body.isEnabled);
+    }
+    updateAllWhitelistEntries(body) {
+        return this.youtubeService.updateAllWhitelistEntries(body.isEnabled);
+    }
 };
 exports.YoutubeController = YoutubeController;
 __decorate([
@@ -110,6 +144,34 @@ __decorate([
     __metadata("design:paramtypes", [YoutubeSearchOverrideDto]),
     __metadata("design:returntype", void 0)
 ], YoutubeController.prototype, "saveSearchOverride", null);
+__decorate([
+    (0, common_1.Get)('whitelist'),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", void 0)
+], YoutubeController.prototype, "listWhitelistEntries", null);
+__decorate([
+    (0, common_1.Post)('whitelist'),
+    __param(0, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [AddYoutubeWhitelistEntryDto]),
+    __metadata("design:returntype", void 0)
+], YoutubeController.prototype, "addWhitelistEntry", null);
+__decorate([
+    (0, common_1.Put)('whitelist/:id'),
+    __param(0, (0, common_1.Param)('id', common_1.ParseIntPipe)),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Number, UpdateYoutubeWhitelistEntryDto]),
+    __metadata("design:returntype", void 0)
+], YoutubeController.prototype, "updateWhitelistEntry", null);
+__decorate([
+    (0, common_1.Put)('whitelist'),
+    __param(0, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [UpdateAllYoutubeWhitelistEntriesDto]),
+    __metadata("design:returntype", void 0)
+], YoutubeController.prototype, "updateAllWhitelistEntries", null);
 exports.YoutubeController = YoutubeController = __decorate([
     (0, common_1.Controller)('youtube'),
     __metadata("design:paramtypes", [youtube_service_1.YoutubeService])

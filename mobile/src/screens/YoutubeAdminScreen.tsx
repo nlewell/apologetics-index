@@ -13,16 +13,22 @@ import {
   View,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   useCreateIndexItem,
+  useAddYoutubeWhitelistEntry,
   useIndexItems,
   useSaveYoutubeSearchOverride,
+  useUpdateAllYoutubeWhitelistEntries,
+  useUpdateYoutubeWhitelistEntry,
+  useYoutubeWhitelist,
   useUpdateIndexItemFields,
   useYoutubeSearch,
 } from '../hooks';
-import { IndexItem, YoutubeSearchItem } from '../types';
+import { IndexItem, YoutubeSearchItem, YoutubeWhitelistEntry } from '../types';
 import { RootStackParamList } from '../types/navigation';
 import { formatApiError } from '../lib/formatApiError';
+import { SEARCH_CARD_EDIT_ENABLED_KEY } from '../constants/admin';
 
 type YoutubeAdminScreenProps = NativeStackScreenProps<RootStackParamList, 'YoutubeAdmin'>;
 
@@ -39,6 +45,10 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
   const [editingItem, setEditingItem] = useState<YoutubeSearchItem | null>(null);
   const [editingStartTimestamp, setEditingStartTimestamp] = useState('');
   const [editingKeepOnRefresh, setEditingKeepOnRefresh] = useState(false);
+  const [forceYoutubeRefresh, setForceYoutubeRefresh] = useState(false);
+  const [isSearchCardEditEnabled, setIsSearchCardEditEnabled] = useState(false);
+  const [newWhitelistEntry, setNewWhitelistEntry] = useState('');
+  const [whitelistSearchText, setWhitelistSearchText] = useState('');
 
   const [indexQueryText, setIndexQueryText] = useState('');
   const [activeIndexQuery, setActiveIndexQuery] = useState('');
@@ -51,16 +61,60 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
   const [newSubtopic, setNewSubtopic] = useState('');
   const [newCharge, setNewCharge] = useState('');
 
+  React.useEffect(() => {
+    let isMounted = true;
+
+    const loadSearchCardEditSetting = async () => {
+      try {
+        const stored = await AsyncStorage.getItem(SEARCH_CARD_EDIT_ENABLED_KEY);
+        if (isMounted) {
+          setIsSearchCardEditEnabled(stored === '1');
+        }
+      } catch {
+        if (isMounted) {
+          setIsSearchCardEditEnabled(false);
+        }
+      }
+    };
+
+    loadSearchCardEditSetting();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   const {
     data: searchData,
     isLoading,
     isError,
     error,
     refetch,
-  } = useYoutubeSearch(activeQuery, 5, false, false);
+  } = useYoutubeSearch(activeQuery, 5, false, forceYoutubeRefresh);
   const saveYoutubeSearchOverride = useSaveYoutubeSearchOverride();
   const updateIndexItemFields = useUpdateIndexItemFields();
   const createIndexItem = useCreateIndexItem();
+  const addYoutubeWhitelistEntry = useAddYoutubeWhitelistEntry();
+  const updateAllYoutubeWhitelistEntries = useUpdateAllYoutubeWhitelistEntries();
+  const updateYoutubeWhitelistEntry = useUpdateYoutubeWhitelistEntry();
+
+  const {
+    data: whitelistEntries,
+    isLoading: isWhitelistLoading,
+    isError: isWhitelistError,
+    error: whitelistError,
+    refetch: refetchWhitelist,
+  } = useYoutubeWhitelist();
+
+  const filteredWhitelistEntries = (whitelistEntries ?? []).filter((entry) => {
+    const filter = whitelistSearchText.trim().toLowerCase();
+
+    if (!filter) {
+      return true;
+    }
+
+    return entry.entry.toLowerCase().includes(filter);
+  });
 
   const {
     data: indexData,
@@ -91,6 +145,52 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
   const runSearch = () => {
     const normalized = queryText.trim();
     setActiveQuery(normalized);
+  };
+
+  const refreshYoutubeSearch = async () => {
+    if (!activeQuery.trim()) {
+      return;
+    }
+
+    setForceYoutubeRefresh(true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    try {
+      await refetch();
+    } finally {
+      setForceYoutubeRefresh(false);
+    }
+  };
+
+  const addWhitelistEntry = async () => {
+    const normalized = newWhitelistEntry.trim();
+
+    if (!normalized) {
+      return;
+    }
+
+    try {
+      await addYoutubeWhitelistEntry.mutateAsync(normalized);
+      setNewWhitelistEntry('');
+      await refetchWhitelist();
+    } catch (error) {
+      // Keep user input so they can adjust handle/channel id and retry.
+      console.warn('Failed to add whitelist entry:', error);
+    }
+  };
+
+  const toggleWhitelistEntry = async (entry: YoutubeWhitelistEntry) => {
+    await updateYoutubeWhitelistEntry.mutateAsync({
+      id: entry.id,
+      isEnabled: !entry.isEnabled,
+    });
+
+    await refetchWhitelist();
+  };
+
+  const setAllWhitelistEntries = async (isEnabled: boolean) => {
+    await updateAllYoutubeWhitelistEntries.mutateAsync(isEnabled);
+    await refetchWhitelist();
   };
 
   const runIndexSearch = () => {
@@ -180,6 +280,16 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
 
     closeCreateIndexItem();
     await refetchIndex();
+  };
+
+  const toggleSearchCardEditEnabled = async (value: boolean) => {
+    setIsSearchCardEditEnabled(value);
+
+    try {
+      await AsyncStorage.setItem(SEARCH_CARD_EDIT_ENABLED_KEY, value ? '1' : '0');
+    } catch {
+      setIsSearchCardEditEnabled(!value);
+    }
   };
 
   const renderVideoCard = ({ item }: { item: YoutubeSearchItem }) => {
@@ -277,6 +387,17 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
             </Text>
           </TouchableOpacity>
         </View>
+
+        <View style={styles.settingRow}>
+          <View style={styles.settingTextWrap}>
+            <Text style={styles.settingLabel}>Enable search card edit buttons</Text>
+            <Text style={styles.settingHint}>Shows the Edit action on result cards in Search.</Text>
+          </View>
+          <Switch
+            value={isSearchCardEditEnabled}
+            onValueChange={toggleSearchCardEditEnabled}
+          />
+        </View>
       </View>
 
       {mode === 'youtube' ? (
@@ -294,6 +415,121 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
               <TouchableOpacity style={styles.searchButton} onPress={runSearch} activeOpacity={0.8}>
                 <Text style={styles.searchButtonText}>Open</Text>
               </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.secondaryActionButton}
+                onPress={refreshYoutubeSearch}
+                activeOpacity={0.8}
+                disabled={isLoading || !activeQuery.trim()}
+              >
+                <Text style={styles.secondaryActionButtonText}>
+                  {forceYoutubeRefresh ? 'Refreshing...' : 'Refresh'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.whitelistPanel}>
+              <Text style={styles.whitelistTitle}>Channel whitelist</Text>
+              <Text style={styles.whitelistSubtitle}>
+                Add channels and toggle whether each one is used during YouTube search.
+              </Text>
+
+              <TextInput
+                value={whitelistSearchText}
+                onChangeText={setWhitelistSearchText}
+                placeholder="Search whitelist"
+                placeholderTextColor="#94a3b8"
+                style={styles.whitelistSearchInput}
+              />
+
+              <View style={styles.searchRow}>
+                <TextInput
+                  value={newWhitelistEntry}
+                  onChangeText={setNewWhitelistEntry}
+                  placeholder="@channelhandle or UC..."
+                  placeholderTextColor="#94a3b8"
+                  style={styles.searchInput}
+                  onSubmitEditing={addWhitelistEntry}
+                />
+                <TouchableOpacity
+                  style={styles.addButton}
+                  onPress={addWhitelistEntry}
+                  activeOpacity={0.8}
+                  disabled={addYoutubeWhitelistEntry.isPending}
+                >
+                  <Text style={styles.addButtonText}>
+                    {addYoutubeWhitelistEntry.isPending ? 'Adding...' : 'Add'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {isWhitelistLoading ? (
+                <View style={styles.whitelistLoadingRow}>
+                  <ActivityIndicator size="small" color="#2563eb" />
+                  <Text style={styles.whitelistLoadingText}>Loading whitelist...</Text>
+                </View>
+              ) : isWhitelistError ? (
+                <View style={styles.whitelistErrorWrap}>
+                  <Text style={styles.errorDetail}>{formatApiError(whitelistError)}</Text>
+                  <TouchableOpacity style={styles.retryButton} onPress={() => refetchWhitelist()} activeOpacity={0.8}>
+                    <Text style={styles.retryButtonText}>Retry</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <View style={styles.whitelistList}>
+                  <View style={styles.whitelistBulkActionsRow}>
+                    <TouchableOpacity
+                      style={styles.whitelistBulkButton}
+                      onPress={() => setAllWhitelistEntries(true)}
+                      activeOpacity={0.8}
+                      disabled={updateAllYoutubeWhitelistEntries.isPending}
+                    >
+                      <Text style={styles.whitelistBulkButtonText}>Enable all</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.whitelistBulkButton}
+                      onPress={() => setAllWhitelistEntries(false)}
+                      activeOpacity={0.8}
+                      disabled={updateAllYoutubeWhitelistEntries.isPending}
+                    >
+                      <Text style={styles.whitelistBulkButtonText}>Disable all</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {addYoutubeWhitelistEntry.isError ? (
+                    <Text style={styles.whitelistInlineError}>
+                      {formatApiError(addYoutubeWhitelistEntry.error)}
+                    </Text>
+                  ) : null}
+
+                  <FlatList
+                    data={filteredWhitelistEntries}
+                    keyExtractor={(entry) => entry.id.toString()}
+                    style={styles.whitelistListScroll}
+                    nestedScrollEnabled
+                    keyboardShouldPersistTaps="handled"
+                    renderItem={({ item: entry }) => (
+                      <View style={styles.whitelistItemRow}>
+                        <View style={styles.whitelistItemTextWrap}>
+                          <Text style={styles.whitelistItemEntry}>{entry.entry}</Text>
+                          <Text style={styles.whitelistItemHint}>
+                            {entry.isEnabled ? 'Enabled' : 'Disabled'}
+                          </Text>
+                        </View>
+                        <Switch
+                          value={entry.isEnabled}
+                          onValueChange={() => toggleWhitelistEntry(entry)}
+                          disabled={updateYoutubeWhitelistEntry.isPending}
+                        />
+                      </View>
+                    )}
+                    ListEmptyComponent={
+                      <Text style={styles.whitelistEmptyText}>
+                        No whitelist entries match this search.
+                      </Text>
+                    }
+                  />
+                </View>
+              )}
             </View>
           </View>
 
@@ -601,12 +837,144 @@ const styles = StyleSheet.create({
   modeButtonTextActive: {
     color: '#1e3a8a',
   },
+  settingRow: {
+    marginTop: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  settingTextWrap: {
+    flex: 1,
+    gap: 3,
+  },
+  settingLabel: {
+    color: '#0f172a',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  settingHint: {
+    color: '#64748b',
+    fontSize: 12,
+    lineHeight: 16,
+  },
   searchSection: {
     paddingHorizontal: 16,
     paddingVertical: 12,
     backgroundColor: '#ffffff',
     borderBottomWidth: 1,
     borderBottomColor: '#e2e8f0',
+  },
+  whitelistPanel: {
+    marginTop: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    backgroundColor: '#f8fafc',
+    padding: 12,
+    gap: 8,
+  },
+  whitelistTitle: {
+    color: '#0f172a',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  whitelistSubtitle: {
+    color: '#64748b',
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  whitelistSearchInput: {
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    backgroundColor: '#ffffff',
+    color: '#0f172a',
+    fontSize: 13,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  whitelistList: {
+    gap: 8,
+    marginTop: 2,
+  },
+  whitelistListScroll: {
+    maxHeight: 220,
+  },
+  whitelistBulkActionsRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  whitelistBulkButton: {
+    borderRadius: 10,
+    backgroundColor: '#e2e8f0',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  whitelistBulkButtonText: {
+    color: '#1e293b',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  whitelistInlineError: {
+    color: '#7f1d1d',
+    fontSize: 12,
+    lineHeight: 16,
+    backgroundColor: '#fee2e2',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  whitelistEmptyText: {
+    color: '#64748b',
+    fontSize: 12,
+    fontStyle: 'italic',
+    textAlign: 'center',
+    paddingVertical: 10,
+  },
+  whitelistItemRow: {
+    borderRadius: 10,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  whitelistItemTextWrap: {
+    flex: 1,
+    gap: 2,
+  },
+  whitelistItemEntry: {
+    color: '#0f172a',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  whitelistItemHint: {
+    color: '#64748b',
+    fontSize: 11,
+  },
+  whitelistLoadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 4,
+  },
+  whitelistLoadingText: {
+    color: '#475569',
+    fontSize: 12,
+  },
+  whitelistErrorWrap: {
+    gap: 6,
   },
   searchRow: {
     flexDirection: 'row',
@@ -632,6 +1000,17 @@ const styles = StyleSheet.create({
   searchButtonText: {
     color: '#ffffff',
     fontSize: 14,
+    fontWeight: '800',
+  },
+  secondaryActionButton: {
+    borderRadius: 12,
+    backgroundColor: '#dbeafe',
+    paddingHorizontal: 14,
+    justifyContent: 'center',
+  },
+  secondaryActionButtonText: {
+    color: '#1e3a8a',
+    fontSize: 13,
     fontWeight: '800',
   },
   addButton: {

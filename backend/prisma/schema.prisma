@@ -83,3 +83,11 @@ model YoutubeVideoMetadata {
   @@unique([query, videoId])
   @@index([query])
 }
+
+model YoutubeChannelWhitelistEntry {
+  id         Int      @id @default(autoincrement())
+  identifier String   @unique
+  isEnabled  Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}

@@ -26,6 +26,71 @@ let YoutubeService = class YoutubeService {
         this.prismaService = prismaService;
         this.shortsMaxSeconds = this.getShortsMaxSeconds();
     }
+    async listWhitelistEntries() {
+        await this.ensureWhitelistSeededFromFile();
+        const rows = await this.prismaService.youtubeChannelWhitelistEntry.findMany({
+            orderBy: [{ isEnabled: 'desc' }, { identifier: 'asc' }],
+        });
+        return rows.map((row) => ({
+            id: row.id,
+            entry: row.identifier,
+            isEnabled: row.isEnabled,
+            createdAt: row.createdAt.toISOString(),
+            updatedAt: row.updatedAt.toISOString(),
+        }));
+    }
+    async addWhitelistEntry(entry) {
+        const normalized = this.normalizeWhitelistEntry(entry);
+        if (!normalized) {
+            throw new common_1.BadRequestException('Entry must be a channel ID or handle.');
+        }
+        const existing = await this.prismaService.youtubeChannelWhitelistEntry.findUnique({
+            where: { identifier: normalized },
+        });
+        if (existing) {
+            throw new common_1.BadRequestException('Channel is already in the whitelist.');
+        }
+        const row = await this.prismaService.youtubeChannelWhitelistEntry.create({
+            data: { identifier: normalized, isEnabled: true },
+        });
+        return {
+            id: row.id,
+            entry: row.identifier,
+            isEnabled: row.isEnabled,
+            createdAt: row.createdAt.toISOString(),
+            updatedAt: row.updatedAt.toISOString(),
+        };
+    }
+    async updateAllWhitelistEntries(isEnabled) {
+        const result = await this.prismaService.youtubeChannelWhitelistEntry.updateMany({
+            data: { isEnabled },
+        });
+        return { updated: result.count };
+    }
+    async updateWhitelistEntry(id, isEnabled) {
+        try {
+            const row = await this.prismaService.youtubeChannelWhitelistEntry.update({
+                where: { id },
+                data: { isEnabled },
+            });
+            return {
+                id: row.id,
+                entry: row.identifier,
+                isEnabled: row.isEnabled,
+                createdAt: row.createdAt.toISOString(),
+                updatedAt: row.updatedAt.toISOString(),
+            };
+        }
+        catch (error) {
+            if (typeof error === 'object' &&
+                error !== null &&
+                'code' in error &&
+                error.code === 'P2025') {
+                throw new common_1.NotFoundException('Whitelist entry not found.');
+            }
+            throw error;
+        }
+    }
     async search(query, maxResults = 5, debug = false, forceRefresh = false) {
         const normalizedQuery = query.trim();
         const cacheKey = this.normalizeQueryKey(query);
@@ -570,11 +635,50 @@ let YoutubeService = class YoutubeService {
         return text.split(' ').filter((token) => token.length > 1);
     }
     async loadWhitelistEntries() {
+        await this.ensureWhitelistSeededFromFile();
+        const rows = await this.prismaService.youtubeChannelWhitelistEntry.findMany({
+            where: { isEnabled: true },
+            orderBy: { identifier: 'asc' },
+        });
+        return rows.map((row) => row.identifier);
+    }
+    async ensureWhitelistSeededFromFile() {
+        const existingCount = await this.prismaService.youtubeChannelWhitelistEntry.count();
+        if (existingCount > 0) {
+            return;
+        }
+        const fallbackEntries = await this.readWhitelistEntriesFromFile();
+        if (!fallbackEntries.length) {
+            return;
+        }
+        await this.prismaService.youtubeChannelWhitelistEntry.createMany({
+            data: fallbackEntries.map((entry) => ({
+                identifier: entry,
+                isEnabled: true,
+            })),
+            skipDuplicates: true,
+        });
+    }
+    async readWhitelistEntriesFromFile() {
         const raw = await node_fs_1.promises.readFile(this.whitelistPath, 'utf-8');
         return raw
             .split(/\r?\n/)
-            .map((line) => line.trim())
-            .filter((line) => line.length > 0 && !line.startsWith('#'));
+            .map((line) => this.normalizeWhitelistEntry(line))
+            .filter((line) => Boolean(line));
+    }
+    normalizeWhitelistEntry(value) {
+        const trimmed = value.trim();
+        if (!trimmed || trimmed.startsWith('#')) {
+            return null;
+        }
+        if (/^UC[\w-]{20,}$/.test(trimmed)) {
+            return trimmed;
+        }
+        const handle = trimmed.replace(/^@/, '').trim().toLowerCase();
+        if (!handle) {
+            return null;
+        }
+        return `@${handle}`;
     }
     async loadPreferredEntries() {
         try {

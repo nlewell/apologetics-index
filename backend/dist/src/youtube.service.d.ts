@@ -37,6 +37,13 @@ export type YoutubeSearchResponse = {
         }>;
     };
 };
+export type YoutubeWhitelistEntry = {
+    id: number;
+    entry: string;
+    isEnabled: boolean;
+    createdAt: string;
+    updatedAt: string;
+};
 export declare class YoutubeService {
     private readonly configService;
     private readonly prismaService;
@@ -44,6 +51,12 @@ export declare class YoutubeService {
     private readonly shortsMaxSeconds;
     private readonly cacheTtlMs;
     constructor(configService: ConfigService, prismaService: PrismaService);
+    listWhitelistEntries(): Promise<YoutubeWhitelistEntry[]>;
+    addWhitelistEntry(entry: string): Promise<YoutubeWhitelistEntry>;
+    updateAllWhitelistEntries(isEnabled: boolean): Promise<{
+        updated: number;
+    }>;
+    updateWhitelistEntry(id: number, isEnabled: boolean): Promise<YoutubeWhitelistEntry>;
     search(query: string, maxResults?: number, debug?: boolean, forceRefresh?: boolean): Promise<YoutubeSearchResponse>;
     private getCachedSearchResponse;
     private saveSearchResponse;
@@ -74,6 +87,9 @@ export declare class YoutubeService {
     private normalizeText;
     private tokenize;
     private loadWhitelistEntries;
+    private ensureWhitelistSeededFromFile;
+    private readWhitelistEntriesFromFile;
+    private normalizeWhitelistEntry;
     private loadPreferredEntries;
     private resolveChannelIds;
     private resolveChannelIdFromHandle;

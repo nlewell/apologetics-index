@@ -19,6 +19,7 @@ import {
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   useIndexItemsTopicsWithSubtopics,
   useSaveYoutubeSearchOverride,
@@ -27,6 +28,7 @@ import {
 import { RootStackParamList } from '../types/navigation';
 import { YoutubeSearchItem } from '../types';
 import { formatApiError } from '../lib/formatApiError';
+import { SEARCH_CARD_EDIT_ENABLED_KEY } from '../constants/admin';
 
 type SearchScreenProps = NativeStackScreenProps<RootStackParamList, 'Search'>;
 
@@ -42,12 +44,12 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ navigation }) => {
     process.env.EXPO_PUBLIC_ADMIN_ACCESS_CODE ?? process.env.EXPO_PUBLIC_API_KEY ?? '';
   const [searchQuery, setSearchQuery] = useState('');
   const [youtubeQuery, setYoutubeQuery] = useState('');
-  const [forceRefresh, setForceRefresh] = useState(false);
   const [editingItem, setEditingItem] = useState<YoutubeSearchItem | null>(null);
   const [editingStartTimestamp, setEditingStartTimestamp] = useState('');
   const [editingKeepOnRefresh, setEditingKeepOnRefresh] = useState(false);
   const [adminUnlockVisible, setAdminUnlockVisible] = useState(false);
   const [adminAccessInput, setAdminAccessInput] = useState('');
+  const [isSearchCardEditEnabled, setIsSearchCardEditEnabled] = useState(false);
   const [selectedTopic, setSelectedTopic] = useState<string | null>(null);
   const [selectedSubtopic, setSelectedSubtopic] = useState<string | null>(null);
   const [selectedCharge, setSelectedCharge] = useState<string | null>(null);
@@ -88,6 +90,31 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ navigation }) => {
     }, [isTopicsError, isTopicsLoading, refetchTopics, topicTree?.length]),
   );
 
+  useFocusEffect(
+    useCallback(() => {
+      let isMounted = true;
+
+      const loadSearchCardEditSetting = async () => {
+        try {
+          const stored = await AsyncStorage.getItem(SEARCH_CARD_EDIT_ENABLED_KEY);
+          if (isMounted) {
+            setIsSearchCardEditEnabled(stored === '1');
+          }
+        } catch {
+          if (isMounted) {
+            setIsSearchCardEditEnabled(false);
+          }
+        }
+      };
+
+      loadSearchCardEditSetting();
+
+      return () => {
+        isMounted = false;
+      };
+    }, []),
+  );
+
   const handleRefreshTopics = () => {
     setShowTopicErrorDetails(false);
     refetchTopics();
@@ -99,7 +126,7 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ navigation }) => {
     isError: isVideosError,
     error: videosError,
     refetch: refetchVideos,
-  } = useYoutubeSearch(youtubeQuery, 5, isYoutubeDebugEnabled, forceRefresh);
+  } = useYoutubeSearch(youtubeQuery, 5, isYoutubeDebugEnabled, false);
   const saveYoutubeSearchOverride = useSaveYoutubeSearchOverride();
 
   const hasYoutubeQuery = youtubeQuery.length > 0;
@@ -238,6 +265,11 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ navigation }) => {
     setShowVideoErrorDetails(false);
   };
 
+  const clearSearchAndRefreshTopics = () => {
+    clearSearch();
+    handleRefreshTopics();
+  };
+
   const executeSearch = () => {
     const normalized = searchQuery.trim();
     if (!normalized) {
@@ -246,21 +278,6 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ navigation }) => {
 
     setYoutubeQuery(normalized);
     setShowVideoErrorDetails(false);
-  };
-
-  const refreshYoutubeResults = async () => {
-    if (!youtubeQuery.trim()) {
-      return;
-    }
-
-    setForceRefresh(true);
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    try {
-      await refetchVideos();
-    } finally {
-      setForceRefresh(false);
-    }
   };
 
   const openEditVideo = (item: YoutubeSearchItem) => {
@@ -380,13 +397,15 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ navigation }) => {
               >
                 <Text style={styles.linkActionText}>Share</Text>
               </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.linkActionButton}
-                onPress={() => openEditVideo(item)}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.linkActionText}>Edit</Text>
-              </TouchableOpacity>
+              {isSearchCardEditEnabled ? (
+                <TouchableOpacity
+                  style={styles.linkActionButton}
+                  onPress={() => openEditVideo(item)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.linkActionText}>Edit</Text>
+                </TouchableOpacity>
+              ) : null}
             </View>
           </View>
         </View>
@@ -659,7 +678,7 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ navigation }) => {
         </View>
 
         {searchQuery ? (
-          <TouchableOpacity onPress={clearSearch} style={styles.clearButton}>
+          <TouchableOpacity onPress={clearSearchAndRefreshTopics} style={styles.clearButton}>
             <Text style={styles.clearButtonText}>Clear</Text>
           </TouchableOpacity>
         ) : null}
@@ -675,14 +694,11 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ navigation }) => {
         <View style={styles.panelHeader}>
           <Text style={styles.panelTitle}>Topics, Subtopics, and Charges</Text>
           <TouchableOpacity
-            style={styles.refreshButton}
-            onPress={handleRefreshTopics}
-            disabled={isTopicsFetching}
+            style={styles.panelAdminButton}
+            onPress={openAdminUnlock}
             activeOpacity={0.8}
           >
-            <Text style={styles.refreshButtonText}>
-              {isTopicsFetching ? 'Refreshing...' : 'Refresh'}
-            </Text>
+            <Text style={styles.panelAdminButtonText}>Admin</Text>
           </TouchableOpacity>
         </View>
 
@@ -757,23 +773,6 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ navigation }) => {
         <>
           <View style={styles.resultsHeader}>
             <Text style={styles.resultsTitle}>{`Results for "${youtubeQuery}"`}</Text>
-            <TouchableOpacity
-              style={styles.resultsRefreshButton}
-              onPress={refreshYoutubeResults}
-              disabled={isVideosLoading}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.resultsRefreshButtonText}>
-                {isVideosLoading ? 'Refreshing...' : 'Refresh'}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.resultsAdminButton}
-              onPress={openAdminUnlock}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.resultsAdminButtonText}>Admin</Text>
-            </TouchableOpacity>
           </View>
 
           {topMatch ? (
@@ -1020,16 +1019,16 @@ const styles = StyleSheet.create({
     color: '#334155',
     fontWeight: '700',
   },
-  refreshButton: {
-    backgroundColor: '#e5e7eb',
+  panelAdminButton: {
+    backgroundColor: '#e2e8f0',
     borderRadius: 999,
     paddingHorizontal: 12,
     paddingVertical: 6,
   },
-  refreshButtonText: {
+  panelAdminButtonText: {
+    color: '#0f172a',
     fontSize: 12,
-    fontWeight: '700',
-    color: '#1f2937',
+    fontWeight: '800',
   },
   topicsScrollContent: {
     paddingHorizontal: 12,
@@ -1159,33 +1158,6 @@ const styles = StyleSheet.create({
     color: '#0f172a',
     fontSize: 14,
     fontWeight: '700',
-  },
-  resultsRefreshButton: {
-    alignSelf: 'flex-start',
-    marginTop: 8,
-    backgroundColor: '#e0f2fe',
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-  },
-  resultsRefreshButtonText: {
-    color: '#075985',
-    fontSize: 12,
-    fontWeight: '800',
-  },
-  resultsAdminButton: {
-    alignSelf: 'flex-start',
-    marginTop: 8,
-    marginLeft: 8,
-    backgroundColor: '#e2e8f0',
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-  },
-  resultsAdminButtonText: {
-    color: '#0f172a',
-    fontSize: 12,
-    fontWeight: '800',
   },
   topMatchContainer: {
     paddingTop: 8,

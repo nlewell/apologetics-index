@@ -108,3 +108,11 @@ export interface YoutubeSearchResponse {
     }>;
   };
 }
+
+export interface YoutubeWhitelistEntry {
+  id: number;
+  entry: string;
+  isEnabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}

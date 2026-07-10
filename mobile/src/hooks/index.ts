@@ -4,3 +4,9 @@ export { useSaveYoutubeSearchOverride } from './useSaveYoutubeSearchOverride';
 export { useIndexItemsTopicsWithSubtopics } from './useIndexItems';
 export { useUpdateIndexItemFields } from './useUpdateIndexItemFields';
 export { useCreateIndexItem } from './useCreateIndexItem';
+export {
+	useAddYoutubeWhitelistEntry,
+	useUpdateAllYoutubeWhitelistEntries,
+	useUpdateYoutubeWhitelistEntry,
+	useYoutubeWhitelist,
+} from './useYoutubeWhitelist';

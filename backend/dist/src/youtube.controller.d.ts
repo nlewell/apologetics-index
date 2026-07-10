@@ -13,10 +13,25 @@ declare class YoutubeSearchOverrideDto {
     startTimestamp?: string | null;
     keepOnRefresh?: boolean;
 }
+declare class AddYoutubeWhitelistEntryDto {
+    entry: string;
+}
+declare class UpdateYoutubeWhitelistEntryDto {
+    isEnabled: boolean;
+}
+declare class UpdateAllYoutubeWhitelistEntriesDto {
+    isEnabled: boolean;
+}
 export declare class YoutubeController {
     private readonly youtubeService;
     constructor(youtubeService: YoutubeService);
     search(query: YoutubeSearchQueryDto): Promise<import("./youtube.service").YoutubeSearchResponse>;
     saveSearchOverride(body: YoutubeSearchOverrideDto): Promise<YoutubeSearchResult>;
+    listWhitelistEntries(): Promise<import("./youtube.service").YoutubeWhitelistEntry[]>;
+    addWhitelistEntry(body: AddYoutubeWhitelistEntryDto): Promise<import("./youtube.service").YoutubeWhitelistEntry>;
+    updateWhitelistEntry(id: number, body: UpdateYoutubeWhitelistEntryDto): Promise<import("./youtube.service").YoutubeWhitelistEntry>;
+    updateAllWhitelistEntries(body: UpdateAllYoutubeWhitelistEntriesDto): Promise<{
+        updated: number;
+    }>;
 }
 export {};

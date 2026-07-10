@@ -1,5 +1,6 @@
 import { Transform, Type } from 'class-transformer';
 import {
+  IsNotEmpty,
   IsBoolean,
   IsInt,
   IsObject,
@@ -8,7 +9,16 @@ import {
   Max,
   Min,
 } from 'class-validator';
-import { Body, Controller, Get, Put, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseIntPipe,
+  Post,
+  Put,
+  Query,
+} from '@nestjs/common';
 import { YoutubeService } from './youtube.service';
 import type { YoutubeSearchResult } from './youtube.service';
 
@@ -54,6 +64,22 @@ class YoutubeSearchOverrideDto {
   keepOnRefresh?: boolean;
 }
 
+class AddYoutubeWhitelistEntryDto {
+  @IsString()
+  @IsNotEmpty()
+  entry!: string;
+}
+
+class UpdateYoutubeWhitelistEntryDto {
+  @IsBoolean()
+  isEnabled!: boolean;
+}
+
+class UpdateAllYoutubeWhitelistEntriesDto {
+  @IsBoolean()
+  isEnabled!: boolean;
+}
+
 @Controller('youtube')
 export class YoutubeController {
   constructor(private readonly youtubeService: YoutubeService) {}
@@ -77,5 +103,28 @@ export class YoutubeController {
       startTimestamp: body.startTimestamp ?? null,
       keepOnRefresh: body.keepOnRefresh ?? false,
     });
+  }
+
+  @Get('whitelist')
+  listWhitelistEntries() {
+    return this.youtubeService.listWhitelistEntries();
+  }
+
+  @Post('whitelist')
+  addWhitelistEntry(@Body() body: AddYoutubeWhitelistEntryDto) {
+    return this.youtubeService.addWhitelistEntry(body.entry);
+  }
+
+  @Put('whitelist/:id')
+  updateWhitelistEntry(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: UpdateYoutubeWhitelistEntryDto,
+  ) {
+    return this.youtubeService.updateWhitelistEntry(id, body.isEnabled);
+  }
+
+  @Put('whitelist')
+  updateAllWhitelistEntries(@Body() body: UpdateAllYoutubeWhitelistEntriesDto) {
+    return this.youtubeService.updateAllWhitelistEntries(body.isEnabled);
   }
 }
