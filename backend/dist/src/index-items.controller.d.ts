@@ -6,6 +6,11 @@ declare class ListIndexItemsQueryDto {
     subtopic?: string;
     q?: string;
 }
+declare class UpdateIndexItemDto {
+    generalTopic?: string | null;
+    subtopic?: string | null;
+    charge?: string | null;
+}
 export declare class IndexItemsController {
     private readonly indexItemsService;
     constructor(indexItemsService: IndexItemsService);
@@ -40,6 +45,25 @@ export declare class IndexItemsController {
             createdAt: Date;
             updatedAt: Date;
         }[];
+    }>;
+    update(id: number, body: UpdateIndexItemDto): Promise<{
+        id: number;
+        sourceKey: string;
+        generalTopic: string | null;
+        subtopic: string | null;
+        charge: string | null;
+        shortResponseUrl: string | null;
+        shortResponseLength: string | null;
+        shortResponseAuthor: string | null;
+        longResponseUrl: string | null;
+        longResponseLength: string | null;
+        debateUrl: string | null;
+        articleUrl: string | null;
+        video1Length: string | null;
+        video1Author: string | null;
+        video1Timestamp: string | null;
+        createdAt: Date;
+        updatedAt: Date;
     }>;
 }
 export {};

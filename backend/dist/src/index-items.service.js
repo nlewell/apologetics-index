@@ -17,6 +17,32 @@ let IndexItemsService = class IndexItemsService {
     constructor(prisma) {
         this.prisma = prisma;
     }
+    normalizeNullableText(value) {
+        if (value === undefined) {
+            return undefined;
+        }
+        const trimmed = (value ?? '').trim();
+        return trimmed.length > 0 ? trimmed : null;
+    }
+    async updateFields(id, input) {
+        const data = {};
+        const generalTopic = this.normalizeNullableText(input.generalTopic);
+        const subtopic = this.normalizeNullableText(input.subtopic);
+        const charge = this.normalizeNullableText(input.charge);
+        if (generalTopic !== undefined) {
+            data.generalTopic = generalTopic;
+        }
+        if (subtopic !== undefined) {
+            data.subtopic = subtopic;
+        }
+        if (charge !== undefined) {
+            data.charge = charge;
+        }
+        return this.prisma.apologeticIndexItem.update({
+            where: { id },
+            data,
+        });
+    }
     async listTopicsWithSubtopics() {
         const rows = await this.prisma.apologeticIndexItem.findMany({
             where: {

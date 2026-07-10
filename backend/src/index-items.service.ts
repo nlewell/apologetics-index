@@ -10,6 +10,12 @@ export type ListIndexItemsInput = {
   q?: string;
 };
 
+export type UpdateIndexItemFieldsInput = {
+  generalTopic?: string | null;
+  subtopic?: string | null;
+  charge?: string | null;
+};
+
 export type TopicWithSubtopics = {
   topic: string;
   charges: string[];
@@ -30,6 +36,40 @@ type TopicAccumulator = {
 @Injectable()
 export class IndexItemsService {
   constructor(private readonly prisma: PrismaService) {}
+
+  private normalizeNullableText(value: string | null | undefined) {
+    if (value === undefined) {
+      return undefined;
+    }
+
+    const trimmed = (value ?? '').trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+
+  async updateFields(id: number, input: UpdateIndexItemFieldsInput) {
+    const data: Prisma.ApologeticIndexItemUpdateInput = {};
+
+    const generalTopic = this.normalizeNullableText(input.generalTopic);
+    const subtopic = this.normalizeNullableText(input.subtopic);
+    const charge = this.normalizeNullableText(input.charge);
+
+    if (generalTopic !== undefined) {
+      data.generalTopic = generalTopic;
+    }
+
+    if (subtopic !== undefined) {
+      data.subtopic = subtopic;
+    }
+
+    if (charge !== undefined) {
+      data.charge = charge;
+    }
+
+    return this.prisma.apologeticIndexItem.update({
+      where: { id },
+      data,
+    });
+  }
 
   async listTopicsWithSubtopics(): Promise<TopicWithSubtopics[]> {
     const rows = await this.prisma.apologeticIndexItem.findMany({

@@ -54,6 +54,26 @@ __decorate([
     (0, class_validator_1.IsString)(),
     __metadata("design:type", String)
 ], ListIndexItemsQueryDto.prototype, "q", void 0);
+class UpdateIndexItemDto {
+    generalTopic;
+    subtopic;
+    charge;
+}
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", Object)
+], UpdateIndexItemDto.prototype, "generalTopic", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", Object)
+], UpdateIndexItemDto.prototype, "subtopic", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", Object)
+], UpdateIndexItemDto.prototype, "charge", void 0);
 let IndexItemsController = class IndexItemsController {
     indexItemsService;
     constructor(indexItemsService) {
@@ -73,6 +93,9 @@ let IndexItemsController = class IndexItemsController {
             subtopic: query.subtopic,
             q: query.q,
         });
+    }
+    update(id, body) {
+        return this.indexItemsService.updateFields(id, body);
     }
 };
 exports.IndexItemsController = IndexItemsController;
@@ -95,6 +118,14 @@ __decorate([
     __metadata("design:paramtypes", [ListIndexItemsQueryDto]),
     __metadata("design:returntype", void 0)
 ], IndexItemsController.prototype, "list", null);
+__decorate([
+    (0, common_1.Patch)(':id'),
+    __param(0, (0, common_1.Param)('id', common_1.ParseIntPipe)),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Number, UpdateIndexItemDto]),
+    __metadata("design:returntype", void 0)
+], IndexItemsController.prototype, "update", null);
 exports.IndexItemsController = IndexItemsController = __decorate([
     (0, common_1.Controller)('index-items'),
     __metadata("design:paramtypes", [index_items_service_1.IndexItemsService])

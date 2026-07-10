@@ -8,7 +8,14 @@ import {
 } from '../types';
 import { apiClient } from '../lib/apiClient';
 
-export const useIndexItems = (params: ListIndexItemsParams = {}) => {
+type UseIndexItemsOptions = {
+  enabled?: boolean;
+};
+
+export const useIndexItems = (
+  params: ListIndexItemsParams = {},
+  options: UseIndexItemsOptions = {},
+) => {
   const { page = 1, limit = 20, generalTopic, subtopic, q } = params;
 
   return useQuery({
@@ -27,6 +34,7 @@ export const useIndexItems = (params: ListIndexItemsParams = {}) => {
     },
     staleTime: 5 * 60 * 1000, // 5 minutes
     gcTime: 10 * 60 * 1000, // 10 minutes (previously cacheTime)
+    enabled: options.enabled ?? true,
   });
 };
 

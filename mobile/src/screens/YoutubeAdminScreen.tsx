@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
-  Linking,
+  FlatList,
   Modal,
   SafeAreaView,
   SectionList,
@@ -14,8 +13,13 @@ import {
   View,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { useSaveYoutubeSearchOverride, useYoutubeSearch } from '../hooks';
-import { YoutubeSearchItem } from '../types';
+import {
+  useIndexItems,
+  useSaveYoutubeSearchOverride,
+  useUpdateIndexItemFields,
+  useYoutubeSearch,
+} from '../hooks';
+import { IndexItem, YoutubeSearchItem } from '../types';
 import { RootStackParamList } from '../types/navigation';
 import { formatApiError } from '../lib/formatApiError';
 
@@ -27,11 +31,20 @@ type VideoSection = {
 };
 
 export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
+  const [mode, setMode] = useState<'youtube' | 'index'>('youtube');
+
   const [queryText, setQueryText] = useState('');
   const [activeQuery, setActiveQuery] = useState('');
   const [editingItem, setEditingItem] = useState<YoutubeSearchItem | null>(null);
   const [editingStartTimestamp, setEditingStartTimestamp] = useState('');
   const [editingKeepOnRefresh, setEditingKeepOnRefresh] = useState(false);
+
+  const [indexQueryText, setIndexQueryText] = useState('');
+  const [activeIndexQuery, setActiveIndexQuery] = useState('');
+  const [editingIndexItem, setEditingIndexItem] = useState<IndexItem | null>(null);
+  const [editingGeneralTopic, setEditingGeneralTopic] = useState('');
+  const [editingSubtopic, setEditingSubtopic] = useState('');
+  const [editingCharge, setEditingCharge] = useState('');
 
   const {
     data: searchData,
@@ -41,6 +54,24 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
     refetch,
   } = useYoutubeSearch(activeQuery, 5, false, false);
   const saveYoutubeSearchOverride = useSaveYoutubeSearchOverride();
+  const updateIndexItemFields = useUpdateIndexItemFields();
+
+  const {
+    data: indexData,
+    isLoading: isIndexLoading,
+    isError: isIndexError,
+    error: indexError,
+    refetch: refetchIndex,
+  } = useIndexItems(
+    {
+      page: 1,
+      limit: 30,
+      q: activeIndexQuery || undefined,
+    },
+    {
+      enabled: mode === 'index' && activeIndexQuery.trim().length > 0,
+    },
+  );
 
   const sections = (searchData?.items ?? []).length
     ? [
@@ -54,6 +85,11 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
   const runSearch = () => {
     const normalized = queryText.trim();
     setActiveQuery(normalized);
+  };
+
+  const runIndexSearch = () => {
+    const normalized = indexQueryText.trim();
+    setActiveIndexQuery(normalized);
   };
 
   const openEditVideo = (item: YoutubeSearchItem) => {
@@ -83,6 +119,36 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
 
     closeEditVideo();
     await refetch();
+  };
+
+  const openEditIndexItem = (item: IndexItem) => {
+    setEditingIndexItem(item);
+    setEditingGeneralTopic(item.generalTopic ?? '');
+    setEditingSubtopic(item.subtopic ?? '');
+    setEditingCharge(item.charge ?? '');
+  };
+
+  const closeEditIndexItem = () => {
+    setEditingIndexItem(null);
+    setEditingGeneralTopic('');
+    setEditingSubtopic('');
+    setEditingCharge('');
+  };
+
+  const saveEditIndexItem = async () => {
+    if (!editingIndexItem) {
+      return;
+    }
+
+    await updateIndexItemFields.mutateAsync({
+      id: editingIndexItem.id,
+      generalTopic: editingGeneralTopic.trim() || null,
+      subtopic: editingSubtopic.trim() || null,
+      charge: editingCharge.trim() || null,
+    });
+
+    closeEditIndexItem();
+    await refetchIndex();
   };
 
   const renderVideoCard = ({ item }: { item: YoutubeSearchItem }) => {
@@ -121,61 +187,169 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
     );
   };
 
+  const renderIndexItemCard = ({ item }: { item: IndexItem }) => {
+    return (
+      <View style={styles.card}>
+        <View style={styles.cardTopRow}>
+          <View style={styles.cardTextBlock}>
+            <Text style={styles.cardTitle} numberOfLines={1}>
+              {item.generalTopic || 'No topic'}
+            </Text>
+            <Text style={styles.cardChannel} numberOfLines={1}>
+              {item.subtopic || 'No subtopic'}
+            </Text>
+          </View>
+          <TouchableOpacity
+            style={styles.editButton}
+            onPress={() => openEditIndexItem(item)}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.editButtonText}>Edit</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.badgeRow}>
+          <Text style={styles.linkBadge} numberOfLines={2}>
+            Charge: {item.charge || 'None'}
+          </Text>
+          <Text style={styles.metaLabel} numberOfLines={1}>
+            Source: {item.sourceKey}
+          </Text>
+        </View>
+      </View>
+    );
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>YouTube admin</Text>
-        <Text style={styles.subtitle}>Search a query, then edit the start time or pin state.</Text>
+        <Text style={styles.title}>Admin editor</Text>
+        <Text style={styles.subtitle}>Manage YouTube overrides or update topic, subtopic, and charge fields.</Text>
 
-        <View style={styles.searchRow}>
-          <TextInput
-            value={queryText}
-            onChangeText={setQueryText}
-            placeholder="Search query"
-            placeholderTextColor="#94a3b8"
-            style={styles.searchInput}
-            onSubmitEditing={runSearch}
-          />
-          <TouchableOpacity style={styles.searchButton} onPress={runSearch} activeOpacity={0.8}>
-            <Text style={styles.searchButtonText}>Open</Text>
+        <View style={styles.modeSwitchRow}>
+          <TouchableOpacity
+            style={[styles.modeButton, mode === 'youtube' && styles.modeButtonActive]}
+            onPress={() => setMode('youtube')}
+            activeOpacity={0.8}
+          >
+            <Text style={[styles.modeButtonText, mode === 'youtube' && styles.modeButtonTextActive]}>
+              YouTube
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.modeButton, mode === 'index' && styles.modeButtonActive]}
+            onPress={() => setMode('index')}
+            activeOpacity={0.8}
+          >
+            <Text style={[styles.modeButtonText, mode === 'index' && styles.modeButtonTextActive]}>
+              Index Items
+            </Text>
           </TouchableOpacity>
         </View>
       </View>
 
-      {!activeQuery ? (
-        <View style={styles.emptyState}>
-          <Text style={styles.emptyStateText}>Enter a query to load the indexed results.</Text>
-        </View>
-      ) : isLoading ? (
-        <View style={styles.loadingState}>
-          <ActivityIndicator size="large" color="#2563eb" />
-        </View>
-      ) : isError ? (
-        <View style={styles.errorState}>
-          <Text style={styles.errorTitle}>Could not load results</Text>
-          <Text style={styles.errorDetail}>{formatApiError(error)}</Text>
-          <TouchableOpacity style={styles.retryButton} onPress={() => refetch()} activeOpacity={0.8}>
-            <Text style={styles.retryButtonText}>Retry</Text>
-          </TouchableOpacity>
-        </View>
-      ) : (
-        <SectionList
-          sections={sections}
-          keyExtractor={(item) => item.videoId}
-          renderItem={renderVideoCard}
-          renderSectionHeader={({ section }) => (
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionHeaderText}>{section.title}</Text>
+      {mode === 'youtube' ? (
+        <>
+          <View style={styles.searchSection}>
+            <View style={styles.searchRow}>
+              <TextInput
+                value={queryText}
+                onChangeText={setQueryText}
+                placeholder="Search query"
+                placeholderTextColor="#94a3b8"
+                style={styles.searchInput}
+                onSubmitEditing={runSearch}
+              />
+              <TouchableOpacity style={styles.searchButton} onPress={runSearch} activeOpacity={0.8}>
+                <Text style={styles.searchButtonText}>Open</Text>
+              </TouchableOpacity>
             </View>
-          )}
-          contentContainerStyle={styles.listContent}
-          stickySectionHeadersEnabled={false}
-          ListEmptyComponent={
+          </View>
+
+          {!activeQuery ? (
             <View style={styles.emptyState}>
-              <Text style={styles.emptyStateText}>No indexed results found for this query yet.</Text>
+              <Text style={styles.emptyStateText}>Enter a query to load the indexed results.</Text>
             </View>
-          }
-        />
+          ) : isLoading ? (
+            <View style={styles.loadingState}>
+              <ActivityIndicator size="large" color="#2563eb" />
+            </View>
+          ) : isError ? (
+            <View style={styles.errorState}>
+              <Text style={styles.errorTitle}>Could not load results</Text>
+              <Text style={styles.errorDetail}>{formatApiError(error)}</Text>
+              <TouchableOpacity style={styles.retryButton} onPress={() => refetch()} activeOpacity={0.8}>
+                <Text style={styles.retryButtonText}>Retry</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <SectionList
+              sections={sections}
+              keyExtractor={(item) => item.videoId}
+              renderItem={renderVideoCard}
+              renderSectionHeader={({ section }) => (
+                <View style={styles.sectionHeader}>
+                  <Text style={styles.sectionHeaderText}>{section.title}</Text>
+                </View>
+              )}
+              contentContainerStyle={styles.listContent}
+              stickySectionHeadersEnabled={false}
+              ListEmptyComponent={
+                <View style={styles.emptyState}>
+                  <Text style={styles.emptyStateText}>No indexed results found for this query yet.</Text>
+                </View>
+              }
+            />
+          )}
+        </>
+      ) : (
+        <>
+          <View style={styles.searchSection}>
+            <View style={styles.searchRow}>
+              <TextInput
+                value={indexQueryText}
+                onChangeText={setIndexQueryText}
+                placeholder="Find by topic, subtopic, or charge"
+                placeholderTextColor="#94a3b8"
+                style={styles.searchInput}
+                onSubmitEditing={runIndexSearch}
+              />
+              <TouchableOpacity style={styles.searchButton} onPress={runIndexSearch} activeOpacity={0.8}>
+                <Text style={styles.searchButtonText}>Find</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {!activeIndexQuery ? (
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyStateText}>Search for index items, then edit topic fields.</Text>
+            </View>
+          ) : isIndexLoading ? (
+            <View style={styles.loadingState}>
+              <ActivityIndicator size="large" color="#2563eb" />
+            </View>
+          ) : isIndexError ? (
+            <View style={styles.errorState}>
+              <Text style={styles.errorTitle}>Could not load index items</Text>
+              <Text style={styles.errorDetail}>{formatApiError(indexError)}</Text>
+              <TouchableOpacity style={styles.retryButton} onPress={() => refetchIndex()} activeOpacity={0.8}>
+                <Text style={styles.retryButtonText}>Retry</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <FlatList
+              data={indexData?.items ?? []}
+              keyExtractor={(item) => item.id.toString()}
+              renderItem={renderIndexItemCard}
+              contentContainerStyle={styles.listContent}
+              ListEmptyComponent={
+                <View style={styles.emptyState}>
+                  <Text style={styles.emptyStateText}>No matching index items found.</Text>
+                </View>
+              }
+            />
+          )}
+        </>
       )}
 
       <Modal visible={editingItem !== null} transparent animationType="fade" onRequestClose={closeEditVideo}>
@@ -221,6 +395,66 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
           </View>
         </View>
       </Modal>
+
+      <Modal
+        visible={editingIndexItem !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={closeEditIndexItem}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Edit index fields</Text>
+            <Text style={styles.modalSubtitle} numberOfLines={1}>
+              {editingIndexItem?.sourceKey ?? ''}
+            </Text>
+
+            <Text style={styles.modalLabel}>General topic</Text>
+            <TextInput
+              style={styles.modalInput}
+              value={editingGeneralTopic}
+              onChangeText={setEditingGeneralTopic}
+              placeholder="General topic"
+              placeholderTextColor="#94a3b8"
+            />
+
+            <Text style={styles.modalLabel}>Subtopic</Text>
+            <TextInput
+              style={styles.modalInput}
+              value={editingSubtopic}
+              onChangeText={setEditingSubtopic}
+              placeholder="Subtopic"
+              placeholderTextColor="#94a3b8"
+            />
+
+            <Text style={styles.modalLabel}>Charge</Text>
+            <TextInput
+              style={styles.modalInput}
+              value={editingCharge}
+              onChangeText={setEditingCharge}
+              placeholder="Charge"
+              placeholderTextColor="#94a3b8"
+              multiline
+            />
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={styles.modalCancelButton} onPress={closeEditIndexItem} activeOpacity={0.8}>
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.modalSaveButton}
+                onPress={saveEditIndexItem}
+                activeOpacity={0.8}
+                disabled={updateIndexItemFields.isPending}
+              >
+                <Text style={styles.modalSaveText}>
+                  {updateIndexItemFields.isPending ? 'Saving...' : 'Save'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -249,8 +483,40 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
   },
-  searchRow: {
+  modeSwitchRow: {
     marginTop: 12,
+    flexDirection: 'row',
+    gap: 10,
+  },
+  modeButton: {
+    flex: 1,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    backgroundColor: '#f8fafc',
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  modeButtonActive: {
+    borderColor: '#2563eb',
+    backgroundColor: '#dbeafe',
+  },
+  modeButtonText: {
+    color: '#334155',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  modeButtonTextActive: {
+    color: '#1e3a8a',
+  },
+  searchSection: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#ffffff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+  },
+  searchRow: {
     flexDirection: 'row',
     gap: 10,
   },
@@ -406,6 +672,11 @@ const styles = StyleSheet.create({
   linkBadge: {
     color: '#64748b',
     fontSize: 12,
+  },
+  metaLabel: {
+    color: '#334155',
+    fontSize: 12,
+    fontWeight: '600',
   },
   modalBackdrop: {
     flex: 1,

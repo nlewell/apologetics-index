@@ -1,6 +1,14 @@
 import { Type } from 'class-transformer';
 import { IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
-import { Controller, Get, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseIntPipe,
+  Patch,
+  Query,
+} from '@nestjs/common';
 import { IndexItemsService } from './index-items.service';
 
 class ListIndexItemsQueryDto {
@@ -30,6 +38,20 @@ class ListIndexItemsQueryDto {
   q?: string;
 }
 
+class UpdateIndexItemDto {
+  @IsOptional()
+  @IsString()
+  generalTopic?: string | null;
+
+  @IsOptional()
+  @IsString()
+  subtopic?: string | null;
+
+  @IsOptional()
+  @IsString()
+  charge?: string | null;
+}
+
 @Controller('index-items')
 export class IndexItemsController {
   constructor(private readonly indexItemsService: IndexItemsService) {}
@@ -53,5 +75,13 @@ export class IndexItemsController {
       subtopic: query.subtopic,
       q: query.q,
     });
+  }
+
+  @Patch(':id')
+  update(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: UpdateIndexItemDto,
+  ) {
+    return this.indexItemsService.updateFields(id, body);
   }
 }
