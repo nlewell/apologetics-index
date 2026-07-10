@@ -57,6 +57,8 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ navigation }) => {
   const [expandedSubtopics, setExpandedSubtopics] = useState<
     Record<string, boolean>
   >({});
+  const [showTopicErrorDetails, setShowTopicErrorDetails] = useState(false);
+  const [showVideoErrorDetails, setShowVideoErrorDetails] = useState(false);
 
   const {
     data: topicTree,
@@ -67,6 +69,17 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ navigation }) => {
     refetch: refetchTopics,
   } = useIndexItemsTopicsWithSubtopics();
 
+  const summarizeError = (err: unknown) => {
+    const message = formatApiError(err);
+    const firstLine = message.split('\n')[0]?.trim() ?? message;
+
+    if (firstLine.length <= 140) {
+      return firstLine;
+    }
+
+    return `${firstLine.slice(0, 137)}...`;
+  };
+
   useFocusEffect(
     useCallback(() => {
       if (isTopicsError || (!topicTree?.length && !isTopicsLoading)) {
@@ -76,6 +89,7 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ navigation }) => {
   );
 
   const handleRefreshTopics = () => {
+    setShowTopicErrorDetails(false);
     refetchTopics();
   };
 
@@ -221,6 +235,7 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ navigation }) => {
     setSelectedCharge(null);
     setExpandedTopics({});
     setExpandedSubtopics({});
+    setShowVideoErrorDetails(false);
   };
 
   const executeSearch = () => {
@@ -230,6 +245,7 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ navigation }) => {
     }
 
     setYoutubeQuery(normalized);
+    setShowVideoErrorDetails(false);
   };
 
   const refreshYoutubeResults = async () => {
@@ -677,7 +693,20 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ navigation }) => {
           </View>
         ) : isTopicsError ? (
           <View style={styles.inlineStateContainer}>
-            <Text style={styles.errorDetail}>{formatApiError(topicsError)}</Text>
+            <View style={styles.errorDetailWrap}>
+              <Text style={styles.errorDetail}>{summarizeError(topicsError)}</Text>
+              <TouchableOpacity
+                onPress={() => setShowTopicErrorDetails((previous) => !previous)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.errorToggleText}>
+                  {showTopicErrorDetails ? 'Hide details' : 'Show details'}
+                </Text>
+              </TouchableOpacity>
+              {showTopicErrorDetails ? (
+                <Text style={styles.errorDetailExpanded}>{formatApiError(topicsError)}</Text>
+              ) : null}
+            </View>
             <TouchableOpacity
               style={styles.retryButton}
               onPress={handleRefreshTopics}
@@ -764,7 +793,18 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ navigation }) => {
       ) : isVideosError ? (
         <View style={styles.errorContainer}>
           <Text style={styles.errorText}>Error loading search results</Text>
-          <Text style={styles.errorDetail}>{formatApiError(videosError)}</Text>
+          <Text style={styles.errorDetail}>{summarizeError(videosError)}</Text>
+          <TouchableOpacity
+            onPress={() => setShowVideoErrorDetails((previous) => !previous)}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.errorToggleText}>
+              {showVideoErrorDetails ? 'Hide details' : 'Show details'}
+            </Text>
+          </TouchableOpacity>
+          {showVideoErrorDetails ? (
+            <Text style={styles.errorDetailExpanded}>{formatApiError(videosError)}</Text>
+          ) : null}
           <TouchableOpacity style={styles.retryButton} onPress={() => refetchVideos()}>
             <Text style={styles.retryButtonText}>Retry</Text>
           </TouchableOpacity>
@@ -1435,6 +1475,28 @@ const styles = StyleSheet.create({
     color: '#7f1d1d',
     textAlign: 'center',
     lineHeight: 18,
+  },
+  errorDetailWrap: {
+    flex: 1,
+    minWidth: 0,
+  },
+  errorToggleText: {
+    marginTop: 4,
+    color: '#1d4ed8',
+    fontSize: 12,
+    fontWeight: '700',
+    textDecorationLine: 'underline',
+    textAlign: 'center',
+  },
+  errorDetailExpanded: {
+    marginTop: 6,
+    fontSize: 12,
+    color: '#7f1d1d',
+    lineHeight: 16,
+    backgroundColor: '#fee2e2',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
   },
   retryButton: {
     marginTop: 4,
