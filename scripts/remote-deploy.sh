@@ -10,6 +10,7 @@ BUILD_APP="${BUILD_APP:-0}"
 RUN_MIGRATIONS="${RUN_MIGRATIONS:-0}"
 HEALTHCHECK_URL="${HEALTHCHECK_URL:-http://127.0.0.1:3000/api}"
 DRY_RUN=0
+INSTALLED_DEV_DEPS=0
 
 usage() {
   cat <<'EOF'
@@ -61,7 +62,13 @@ run git pull origin "$BRANCH"
 cd "$BACKEND_DIR"
 
 if [[ "$INSTALL_DEPS" == "1" ]]; then
-  run npm ci --omit=dev --no-audit --no-fund
+  if [[ "$BUILD_APP" == "1" ]]; then
+    # nest build depends on devDependencies (e.g. @nestjs/cli)
+    run npm ci --no-audit --no-fund
+    INSTALLED_DEV_DEPS=1
+  else
+    run npm ci --omit=dev --no-audit --no-fund
+  fi
 elif [[ "$DRY_RUN" != "1" ]]; then
   # Fail early if runtime dependencies are missing.
   if [[ ! -f "node_modules/@nestjs/core/package.json" ]]; then
@@ -71,6 +78,10 @@ elif [[ "$DRY_RUN" != "1" ]]; then
 fi
 
 if [[ "$BUILD_APP" == "1" ]]; then
+  if [[ "$DRY_RUN" != "1" && ! -x "node_modules/.bin/nest" ]]; then
+    echo "Missing Nest CLI for build. Re-run with INSTALL_DEPS=1 BUILD_APP=1"
+    exit 1
+  fi
   run npm run build
 fi
 
@@ -81,6 +92,11 @@ if [[ "$RUN_MIGRATIONS" == "1" ]]; then
     echo "Prisma CLI not available. Install dev dependencies or run migrations externally."
     exit 1
   fi
+fi
+
+if [[ "$INSTALLED_DEV_DEPS" == "1" ]]; then
+  # Keep the runtime image lean after successful build/migrations.
+  run npm prune --omit=dev --no-audit --no-fund
 fi
 
 if [[ "$DRY_RUN" == "1" ]]; then
