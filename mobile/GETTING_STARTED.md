@@ -49,6 +49,21 @@ If running on a physical device, replace localhost with your machine LAN IP.
 npx expo start
 ```
 
+## EAS Profiles (Recommended)
+
+You can run a simple workflow with only local development + production releases.
+
+- Local development: use `npx expo start` with your `.env` target (`local` or `remote`).
+- Production OTA update: `eas update --branch production --message "..."`
+- Production Android build: `eas build -p android --profile production`
+
+Optional profiles in `eas.json`:
+
+- `development`: internal dev-client builds for native debugging.
+- `preview`: internal QA builds before production rollout.
+
+If you do not need staged tester builds, you can ignore `development` and `preview`.
+
 ### Option 1: Expo Go (Fastest)
 1. Install Expo Go on your phone (iOS App Store or Google Play)
 2. Scan the QR code from terminal with your phone's camera
