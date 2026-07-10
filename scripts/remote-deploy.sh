@@ -98,7 +98,11 @@ fi
 
 if command -v curl >/dev/null 2>&1; then
   echo "Running health check: $HEALTHCHECK_URL"
-  run curl --fail --silent --show-error "$HEALTHCHECK_URL" >/dev/null
+  if [[ -n "${API_KEY:-}" ]]; then
+    run curl --fail --silent --show-error -H "x-api-key: $API_KEY" "$HEALTHCHECK_URL" >/dev/null
+  else
+    run curl --fail --silent --show-error "$HEALTHCHECK_URL" >/dev/null
+  fi
 fi
 
 echo "Deployment finished. Check logs if necessary: sudo journalctl -u $SERVICE_NAME -n 200 --no-pager"
