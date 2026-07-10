@@ -84,14 +84,6 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ navigation }) => {
 
   useFocusEffect(
     useCallback(() => {
-      if (isTopicsError || (!topicTree?.length && !isTopicsLoading)) {
-        refetchTopics();
-      }
-    }, [isTopicsError, isTopicsLoading, refetchTopics, topicTree?.length]),
-  );
-
-  useFocusEffect(
-    useCallback(() => {
       let isMounted = true;
 
       const loadSearchCardEditSetting = async () => {
