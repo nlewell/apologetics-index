@@ -1,5 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { randomUUID } from 'crypto';
 import { PrismaService } from './prisma.service';
 
 export type ListIndexItemsInput = {
@@ -11,6 +12,12 @@ export type ListIndexItemsInput = {
 };
 
 export type UpdateIndexItemFieldsInput = {
+  generalTopic?: string | null;
+  subtopic?: string | null;
+  charge?: string | null;
+};
+
+export type CreateIndexItemInput = {
   generalTopic?: string | null;
   subtopic?: string | null;
   charge?: string | null;
@@ -68,6 +75,27 @@ export class IndexItemsService {
     return this.prisma.apologeticIndexItem.update({
       where: { id },
       data,
+    });
+  }
+
+  async createItem(input: CreateIndexItemInput) {
+    const generalTopic = this.normalizeNullableText(input.generalTopic);
+    const subtopic = this.normalizeNullableText(input.subtopic);
+    const charge = this.normalizeNullableText(input.charge);
+
+    if (!generalTopic && !subtopic && !charge) {
+      throw new BadRequestException(
+        'Provide at least one of generalTopic, subtopic, or charge.',
+      );
+    }
+
+    return this.prisma.apologeticIndexItem.create({
+      data: {
+        sourceKey: `manual-${randomUUID()}`,
+        generalTopic: generalTopic ?? null,
+        subtopic: subtopic ?? null,
+        charge: charge ?? null,
+      },
     });
   }
 

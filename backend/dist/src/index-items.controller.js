@@ -74,6 +74,26 @@ __decorate([
     (0, class_validator_1.IsString)(),
     __metadata("design:type", Object)
 ], UpdateIndexItemDto.prototype, "charge", void 0);
+class CreateIndexItemDto {
+    generalTopic;
+    subtopic;
+    charge;
+}
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", Object)
+], CreateIndexItemDto.prototype, "generalTopic", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", Object)
+], CreateIndexItemDto.prototype, "subtopic", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", Object)
+], CreateIndexItemDto.prototype, "charge", void 0);
 let IndexItemsController = class IndexItemsController {
     indexItemsService;
     constructor(indexItemsService) {
@@ -96,6 +116,9 @@ let IndexItemsController = class IndexItemsController {
     }
     update(id, body) {
         return this.indexItemsService.updateFields(id, body);
+    }
+    create(body) {
+        return this.indexItemsService.createItem(body);
     }
 };
 exports.IndexItemsController = IndexItemsController;
@@ -126,6 +149,13 @@ __decorate([
     __metadata("design:paramtypes", [Number, UpdateIndexItemDto]),
     __metadata("design:returntype", void 0)
 ], IndexItemsController.prototype, "update", null);
+__decorate([
+    (0, common_1.Post)(),
+    __param(0, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [CreateIndexItemDto]),
+    __metadata("design:returntype", void 0)
+], IndexItemsController.prototype, "create", null);
 exports.IndexItemsController = IndexItemsController = __decorate([
     (0, common_1.Controller)('index-items'),
     __metadata("design:paramtypes", [index_items_service_1.IndexItemsService])

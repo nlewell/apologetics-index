@@ -11,6 +11,7 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.IndexItemsService = void 0;
 const common_1 = require("@nestjs/common");
+const crypto_1 = require("crypto");
 const prisma_service_1 = require("./prisma.service");
 let IndexItemsService = class IndexItemsService {
     prisma;
@@ -41,6 +42,22 @@ let IndexItemsService = class IndexItemsService {
         return this.prisma.apologeticIndexItem.update({
             where: { id },
             data,
+        });
+    }
+    async createItem(input) {
+        const generalTopic = this.normalizeNullableText(input.generalTopic);
+        const subtopic = this.normalizeNullableText(input.subtopic);
+        const charge = this.normalizeNullableText(input.charge);
+        if (!generalTopic && !subtopic && !charge) {
+            throw new common_1.BadRequestException('Provide at least one of generalTopic, subtopic, or charge.');
+        }
+        return this.prisma.apologeticIndexItem.create({
+            data: {
+                sourceKey: `manual-${(0, crypto_1.randomUUID)()}`,
+                generalTopic: generalTopic ?? null,
+                subtopic: subtopic ?? null,
+                charge: charge ?? null,
+            },
         });
     }
     async listTopicsWithSubtopics() {

@@ -11,6 +11,11 @@ export type UpdateIndexItemFieldsInput = {
     subtopic?: string | null;
     charge?: string | null;
 };
+export type CreateIndexItemInput = {
+    generalTopic?: string | null;
+    subtopic?: string | null;
+    charge?: string | null;
+};
 export type TopicWithSubtopics = {
     topic: string;
     charges: string[];
@@ -25,6 +30,25 @@ export declare class IndexItemsService {
     constructor(prisma: PrismaService);
     private normalizeNullableText;
     updateFields(id: number, input: UpdateIndexItemFieldsInput): Promise<{
+        id: number;
+        sourceKey: string;
+        generalTopic: string | null;
+        subtopic: string | null;
+        charge: string | null;
+        shortResponseUrl: string | null;
+        shortResponseLength: string | null;
+        shortResponseAuthor: string | null;
+        longResponseUrl: string | null;
+        longResponseLength: string | null;
+        debateUrl: string | null;
+        articleUrl: string | null;
+        video1Length: string | null;
+        video1Author: string | null;
+        video1Timestamp: string | null;
+        createdAt: Date;
+        updatedAt: Date;
+    }>;
+    createItem(input: CreateIndexItemInput): Promise<{
         id: number;
         sourceKey: string;
         generalTopic: string | null;

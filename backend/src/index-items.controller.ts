@@ -7,6 +7,7 @@ import {
   Param,
   ParseIntPipe,
   Patch,
+  Post,
   Query,
 } from '@nestjs/common';
 import { IndexItemsService } from './index-items.service';
@@ -52,6 +53,20 @@ class UpdateIndexItemDto {
   charge?: string | null;
 }
 
+class CreateIndexItemDto {
+  @IsOptional()
+  @IsString()
+  generalTopic?: string | null;
+
+  @IsOptional()
+  @IsString()
+  subtopic?: string | null;
+
+  @IsOptional()
+  @IsString()
+  charge?: string | null;
+}
+
 @Controller('index-items')
 export class IndexItemsController {
   constructor(private readonly indexItemsService: IndexItemsService) {}
@@ -83,5 +98,10 @@ export class IndexItemsController {
     @Body() body: UpdateIndexItemDto,
   ) {
     return this.indexItemsService.updateFields(id, body);
+  }
+
+  @Post()
+  create(@Body() body: CreateIndexItemDto) {
+    return this.indexItemsService.createItem(body);
   }
 }

@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
+  useCreateIndexItem,
   useIndexItems,
   useSaveYoutubeSearchOverride,
   useUpdateIndexItemFields,
@@ -45,6 +46,10 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
   const [editingGeneralTopic, setEditingGeneralTopic] = useState('');
   const [editingSubtopic, setEditingSubtopic] = useState('');
   const [editingCharge, setEditingCharge] = useState('');
+  const [creatingIndexItem, setCreatingIndexItem] = useState(false);
+  const [newGeneralTopic, setNewGeneralTopic] = useState('');
+  const [newSubtopic, setNewSubtopic] = useState('');
+  const [newCharge, setNewCharge] = useState('');
 
   const {
     data: searchData,
@@ -55,6 +60,7 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
   } = useYoutubeSearch(activeQuery, 5, false, false);
   const saveYoutubeSearchOverride = useSaveYoutubeSearchOverride();
   const updateIndexItemFields = useUpdateIndexItemFields();
+  const createIndexItem = useCreateIndexItem();
 
   const {
     data: indexData,
@@ -148,6 +154,31 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
     });
 
     closeEditIndexItem();
+    await refetchIndex();
+  };
+
+  const openCreateIndexItem = () => {
+    setNewGeneralTopic('');
+    setNewSubtopic('');
+    setNewCharge('');
+    setCreatingIndexItem(true);
+  };
+
+  const closeCreateIndexItem = () => {
+    setCreatingIndexItem(false);
+    setNewGeneralTopic('');
+    setNewSubtopic('');
+    setNewCharge('');
+  };
+
+  const saveCreateIndexItem = async () => {
+    await createIndexItem.mutateAsync({
+      generalTopic: newGeneralTopic.trim() || null,
+      subtopic: newSubtopic.trim() || null,
+      charge: newCharge.trim() || null,
+    });
+
+    closeCreateIndexItem();
     await refetchIndex();
   };
 
@@ -317,6 +348,9 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
               <TouchableOpacity style={styles.searchButton} onPress={runIndexSearch} activeOpacity={0.8}>
                 <Text style={styles.searchButtonText}>Find</Text>
               </TouchableOpacity>
+              <TouchableOpacity style={styles.addButton} onPress={openCreateIndexItem} activeOpacity={0.8}>
+                <Text style={styles.addButtonText}>Add</Text>
+              </TouchableOpacity>
             </View>
           </View>
 
@@ -455,6 +489,64 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
           </View>
         </View>
       </Modal>
+
+      <Modal
+        visible={creatingIndexItem}
+        transparent
+        animationType="fade"
+        onRequestClose={closeCreateIndexItem}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Add index item</Text>
+            <Text style={styles.modalSubtitle}>Create a new topic/subtopic/charge entry.</Text>
+
+            <Text style={styles.modalLabel}>General topic</Text>
+            <TextInput
+              style={styles.modalInput}
+              value={newGeneralTopic}
+              onChangeText={setNewGeneralTopic}
+              placeholder="General topic"
+              placeholderTextColor="#94a3b8"
+            />
+
+            <Text style={styles.modalLabel}>Subtopic</Text>
+            <TextInput
+              style={styles.modalInput}
+              value={newSubtopic}
+              onChangeText={setNewSubtopic}
+              placeholder="Subtopic"
+              placeholderTextColor="#94a3b8"
+            />
+
+            <Text style={styles.modalLabel}>Charge</Text>
+            <TextInput
+              style={styles.modalInput}
+              value={newCharge}
+              onChangeText={setNewCharge}
+              placeholder="Charge"
+              placeholderTextColor="#94a3b8"
+              multiline
+            />
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={styles.modalCancelButton} onPress={closeCreateIndexItem} activeOpacity={0.8}>
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.modalSaveButton}
+                onPress={saveCreateIndexItem}
+                activeOpacity={0.8}
+                disabled={createIndexItem.isPending}
+              >
+                <Text style={styles.modalSaveText}>
+                  {createIndexItem.isPending ? 'Saving...' : 'Add'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -538,6 +630,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   searchButtonText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  addButton: {
+    borderRadius: 12,
+    backgroundColor: '#0f766e',
+    paddingHorizontal: 16,
+    justifyContent: 'center',
+  },
+  addButtonText: {
     color: '#ffffff',
     fontSize: 14,
     fontWeight: '800',

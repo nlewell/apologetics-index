@@ -42,6 +42,12 @@ export interface UpdateIndexItemFieldsInput {
   charge?: string | null;
 }
 
+export interface CreateIndexItemInput {
+  generalTopic?: string | null;
+  subtopic?: string | null;
+  charge?: string | null;
+}
+
 export interface ContentVersionResponse {
   version: string;
   totalItems: number;
