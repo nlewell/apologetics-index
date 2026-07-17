@@ -47,6 +47,17 @@ __decorate([
     (0, class_validator_1.IsBoolean)(),
     __metadata("design:type", Boolean)
 ], YoutubeSearchQueryDto.prototype, "forceRefresh", void 0);
+class YoutubeRecentQueriesDto {
+    limit;
+}
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_transformer_1.Type)(() => Number),
+    (0, class_validator_1.IsInt)(),
+    (0, class_validator_1.Min)(1),
+    (0, class_validator_1.Max)(25),
+    __metadata("design:type", Number)
+], YoutubeRecentQueriesDto.prototype, "limit", void 0);
 class YoutubeSearchOverrideDto {
     query;
     videoId;
@@ -104,6 +115,9 @@ let YoutubeController = class YoutubeController {
     constructor(youtubeService) {
         this.youtubeService = youtubeService;
     }
+    listRecentQueries(query) {
+        return this.youtubeService.listRecentQueries(query.limit ?? 10);
+    }
     search(query) {
         return this.youtubeService.search(query.q, query.maxResults ?? 5, query.debug ?? false, query.forceRefresh ?? false);
     }
@@ -130,6 +144,13 @@ let YoutubeController = class YoutubeController {
     }
 };
 exports.YoutubeController = YoutubeController;
+__decorate([
+    (0, common_1.Get)('recent-queries'),
+    __param(0, (0, common_1.Query)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [YoutubeRecentQueriesDto]),
+    __metadata("design:returntype", void 0)
+], YoutubeController.prototype, "listRecentQueries", null);
 __decorate([
     (0, common_1.Get)('search'),
     __param(0, (0, common_1.Query)()),

@@ -44,6 +44,15 @@ class YoutubeSearchQueryDto {
   forceRefresh?: boolean;
 }
 
+class YoutubeRecentQueriesDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(25)
+  limit?: number;
+}
+
 class YoutubeSearchOverrideDto {
   @IsString()
   query!: string;
@@ -83,6 +92,11 @@ class UpdateAllYoutubeWhitelistEntriesDto {
 @Controller('youtube')
 export class YoutubeController {
   constructor(private readonly youtubeService: YoutubeService) {}
+
+  @Get('recent-queries')
+  listRecentQueries(@Query() query: YoutubeRecentQueriesDto) {
+    return this.youtubeService.listRecentQueries(query.limit ?? 10);
+  }
 
   @Get('search')
   search(@Query() query: YoutubeSearchQueryDto) {

@@ -109,6 +109,10 @@ export interface YoutubeSearchResponse {
   };
 }
 
+export interface YoutubeRecentQueriesResponse {
+  queries: string[];
+}
+
 export interface YoutubeWhitelistEntry {
   id: number;
   entry: string;

@@ -6,6 +6,9 @@ declare class YoutubeSearchQueryDto {
     debug?: boolean;
     forceRefresh?: boolean;
 }
+declare class YoutubeRecentQueriesDto {
+    limit?: number;
+}
 declare class YoutubeSearchOverrideDto {
     query: string;
     videoId: string;
@@ -25,6 +28,7 @@ declare class UpdateAllYoutubeWhitelistEntriesDto {
 export declare class YoutubeController {
     private readonly youtubeService;
     constructor(youtubeService: YoutubeService);
+    listRecentQueries(query: YoutubeRecentQueriesDto): Promise<import("./youtube.service").YoutubeRecentQueriesResponse>;
     search(query: YoutubeSearchQueryDto): Promise<import("./youtube.service").YoutubeSearchResponse>;
     saveSearchOverride(body: YoutubeSearchOverrideDto): Promise<YoutubeSearchResult>;
     listWhitelistEntries(): Promise<import("./youtube.service").YoutubeWhitelistEntry[]>;

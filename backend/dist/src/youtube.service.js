@@ -91,6 +91,47 @@ let YoutubeService = class YoutubeService {
             throw error;
         }
     }
+    async listRecentQueries(limit = 10) {
+        const boundedLimit = Number.isFinite(limit)
+            ? Math.min(25, Math.max(1, Math.trunc(limit)))
+            : 10;
+        const [recentVideoIndexRows, recentMetadataRows] = await Promise.all([
+            this.prismaService.youtubeVideoIndex.findMany({
+                orderBy: { refreshedAt: 'desc' },
+                take: boundedLimit,
+                select: { query: true },
+            }),
+            this.prismaService.youtubeVideoMetadata.findMany({
+                orderBy: { updatedAt: 'desc' },
+                take: boundedLimit,
+                select: { query: true },
+            }),
+        ]);
+        const uniqueQueries = new Set();
+        for (const row of recentVideoIndexRows) {
+            const normalized = row.query.trim();
+            if (normalized) {
+                uniqueQueries.add(normalized);
+            }
+            if (uniqueQueries.size >= boundedLimit) {
+                break;
+            }
+        }
+        if (uniqueQueries.size < boundedLimit) {
+            for (const row of recentMetadataRows) {
+                const normalized = row.query.trim();
+                if (normalized) {
+                    uniqueQueries.add(normalized);
+                }
+                if (uniqueQueries.size >= boundedLimit) {
+                    break;
+                }
+            }
+        }
+        return {
+            queries: Array.from(uniqueQueries).slice(0, boundedLimit),
+        };
+    }
     async search(query, maxResults = 5, debug = false, forceRefresh = false) {
         const normalizedQuery = query.trim();
         const cacheKey = this.normalizeQueryKey(query);

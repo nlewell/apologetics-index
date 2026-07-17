@@ -44,6 +44,9 @@ export type YoutubeWhitelistEntry = {
     createdAt: string;
     updatedAt: string;
 };
+export type YoutubeRecentQueriesResponse = {
+    queries: string[];
+};
 export declare class YoutubeService {
     private readonly configService;
     private readonly prismaService;
@@ -57,6 +60,7 @@ export declare class YoutubeService {
         updated: number;
     }>;
     updateWhitelistEntry(id: number, isEnabled: boolean): Promise<YoutubeWhitelistEntry>;
+    listRecentQueries(limit?: number): Promise<YoutubeRecentQueriesResponse>;
     search(query: string, maxResults?: number, debug?: boolean, forceRefresh?: boolean): Promise<YoutubeSearchResponse>;
     private getCachedSearchResponse;
     private saveSearchResponse;
