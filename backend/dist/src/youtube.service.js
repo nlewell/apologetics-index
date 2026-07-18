@@ -233,7 +233,7 @@ let YoutubeService = class YoutubeService {
         return response;
     }
     async getCachedSearchResponse(cacheKey) {
-        const cachedEntry = await this.prismaService.youtubeVideoIndex.findFirst({
+        const cachedEntry = await this.prismaService.youtubeVideoIndex.findUnique({
             where: { query: cacheKey },
         });
         if (!cachedEntry) {
@@ -596,7 +596,7 @@ let YoutubeService = class YoutubeService {
         };
     }
     normalizeQueryKey(query) {
-        return query.trim().toLowerCase().replace(/\s+/g, ' ');
+        return this.normalizeText(query);
     }
     parseStartTimestampToSeconds(startTimestamp) {
         const trimmed = startTimestamp.trim();

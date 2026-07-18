@@ -116,6 +116,10 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
   const [editingItem, setEditingItem] = useState<YoutubeSearchItem | null>(null);
   const [editingStartTimestamp, setEditingStartTimestamp] = useState('');
   const [editingKeepOnRefresh, setEditingKeepOnRefresh] = useState(false);
+  const [showAddToFields, setShowAddToFields] = useState(false);
+  const [addToTopic, setAddToTopic] = useState('');
+  const [addToSubtopic, setAddToSubtopic] = useState('');
+  const [addToCharge, setAddToCharge] = useState('');
   const [isSearchCardEditEnabled, setIsSearchCardEditEnabled] = useState(false);
   const [isIndexItemsCollapsed, setIsIndexItemsCollapsed] = useState(true);
   const [isWhitelistCollapsed, setIsWhitelistCollapsed] = useState(true);
@@ -222,14 +226,34 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
     },
   );
 
-  const sections = (searchData?.items ?? []).length
-    ? [
-        {
-          title: `Results (${searchData?.items?.length ?? 0})`,
-          data: searchData?.items ?? [],
-        },
-      ]
-    : [];
+  const rawSearchItems = searchData?.items ?? [];
+  const topMatchItems = rawSearchItems.filter((item) => item.keepOnRefresh);
+  const standardItems = rawSearchItems.filter((item) => !item.keepOnRefresh);
+  const shortFormItems = standardItems.filter((item) => item.isShort);
+  const longFormItems = standardItems.filter((item) => !item.isShort);
+
+  const sections: VideoSection[] = [];
+
+  if (topMatchItems.length > 0) {
+    sections.push({
+      title: `Top Match (${topMatchItems.length})`,
+      data: topMatchItems,
+    });
+  }
+
+  if (shortFormItems.length > 0) {
+    sections.push({
+      title: `Short-form (${shortFormItems.length})`,
+      data: shortFormItems,
+    });
+  }
+
+  if (longFormItems.length > 0) {
+    sections.push({
+      title: `Long-form (${longFormItems.length})`,
+      data: longFormItems,
+    });
+  }
 
   const addWhitelistEntry = async () => {
     const normalized = newWhitelistEntry.trim();
@@ -266,12 +290,42 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
     setEditingItem(item);
     setEditingStartTimestamp(item.startTimestamp ?? '');
     setEditingKeepOnRefresh(Boolean(item.keepOnRefresh));
+    setShowAddToFields(false);
+    setAddToTopic('');
+    setAddToSubtopic('');
+    setAddToCharge('');
   };
 
   const closeEditVideo = () => {
     setEditingItem(null);
     setEditingStartTimestamp('');
     setEditingKeepOnRefresh(false);
+    setShowAddToFields(false);
+    setAddToTopic('');
+    setAddToSubtopic('');
+    setAddToCharge('');
+  };
+
+  const buildTopicPathQuery = (
+    topicValue: string,
+    subtopicValue: string,
+    chargeValue: string,
+  ) => {
+    const normalizeSegment = (value: string) => value.replace(/\s+/g, ' ').trim();
+
+    const topic = normalizeSegment(topicValue);
+    const subtopic = normalizeSegment(subtopicValue);
+    const charge = normalizeSegment(chargeValue);
+
+    if (charge) {
+      return [topic, subtopic, charge].filter(Boolean).join(' ');
+    }
+
+    if (subtopic) {
+      return [topic, subtopic].filter(Boolean).join(' ');
+    }
+
+    return topic;
   };
 
   const saveEditVideo = async () => {
@@ -289,6 +343,31 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
 
     closeEditVideo();
     await refetch();
+  };
+
+  const addVideoToAnotherTopicPath = async () => {
+    if (!editingItem) {
+      return;
+    }
+
+    const destinationQuery = buildTopicPathQuery(addToTopic, addToSubtopic, addToCharge);
+
+    if (!destinationQuery) {
+      return;
+    }
+
+    await saveYoutubeSearchOverride.mutateAsync({
+      query: destinationQuery,
+      videoId: editingItem.videoId,
+      item: editingItem,
+      startTimestamp: editingStartTimestamp.trim().length > 0 ? editingStartTimestamp.trim() : null,
+      keepOnRefresh: true,
+    });
+
+    setShowAddToFields(false);
+    setAddToTopic('');
+    setAddToSubtopic('');
+    setAddToCharge('');
   };
 
   const openEditIndexItem = (item: IndexItem) => {
@@ -336,9 +415,11 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
   };
 
   const runIndexItemSearch = (item: IndexItem) => {
-    const queryText = [item.generalTopic, item.subtopic, item.charge]
-      .filter((value): value is string => Boolean(value && value.trim().length > 0))
-      .join(' ');
+    const queryText = buildTopicPathQuery(
+      item.generalTopic ?? '',
+      item.subtopic ?? '',
+      item.charge ?? '',
+    );
 
     if (!queryText) {
       return;
@@ -510,7 +591,12 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
           <View style={styles.sectionHeaderActions}>{renderHelpButton('youtubeSearch')}</View>
         </View>
 
-        <View style={styles.youtubeToolsStack}>
+        <ScrollView
+          style={styles.youtubeToolsScroll}
+          contentContainerStyle={styles.youtubeToolsStack}
+          nestedScrollEnabled
+          keyboardShouldPersistTaps="handled"
+        >
           <View style={styles.whitelistPanel}>
             <View style={styles.sectionTitleRow}>
               <Text style={styles.whitelistTitle}>Channel whitelist</Text>
@@ -691,7 +777,7 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
             )}
           </View>
 
-        </View>
+        </ScrollView>
 
         <View style={styles.searchResultsDivider} />
 
@@ -771,6 +857,64 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
               </View>
               <Switch value={editingKeepOnRefresh} onValueChange={setEditingKeepOnRefresh} />
             </View>
+
+            <View style={styles.addToRow}>
+              <Text style={styles.modalHint}>
+                Add this same video to another topic path and keep it pinned there.
+              </Text>
+              <TouchableOpacity
+                style={styles.secondaryActionButton}
+                onPress={() => setShowAddToFields((previous) => !previous)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.secondaryActionButtonText}>
+                  {showAddToFields ? 'Hide Add to...' : 'Add to...'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {showAddToFields ? (
+              <View style={styles.addToFieldsWrap}>
+                <Text style={styles.modalLabel}>Topic</Text>
+                <TextInput
+                  style={styles.modalInput}
+                  value={addToTopic}
+                  onChangeText={setAddToTopic}
+                  placeholder="General topic"
+                  placeholderTextColor="#94a3b8"
+                />
+
+                <Text style={styles.modalLabel}>Subtopic (optional)</Text>
+                <TextInput
+                  style={styles.modalInput}
+                  value={addToSubtopic}
+                  onChangeText={setAddToSubtopic}
+                  placeholder="Subtopic"
+                  placeholderTextColor="#94a3b8"
+                />
+
+                <Text style={styles.modalLabel}>Charge (optional)</Text>
+                <TextInput
+                  style={styles.modalInput}
+                  value={addToCharge}
+                  onChangeText={setAddToCharge}
+                  placeholder="Charge"
+                  placeholderTextColor="#94a3b8"
+                  multiline
+                />
+
+                <TouchableOpacity
+                  style={styles.addToButton}
+                  onPress={addVideoToAnotherTopicPath}
+                  activeOpacity={0.8}
+                  disabled={saveYoutubeSearchOverride.isPending}
+                >
+                  <Text style={styles.addToButtonText}>
+                    {saveYoutubeSearchOverride.isPending ? 'Adding...' : 'Add pinned copy'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
 
             <View style={styles.modalActions}>
               <TouchableOpacity style={styles.modalCancelButton} onPress={closeEditVideo} activeOpacity={0.8}>
@@ -1070,6 +1214,10 @@ const styles = StyleSheet.create({
   },
   youtubeToolsStack: {
     gap: 10,
+    paddingBottom: 4,
+  },
+  youtubeToolsScroll: {
+    maxHeight: 360,
   },
   searchResultsDivider: {
     marginTop: 12,
@@ -1611,6 +1759,30 @@ const styles = StyleSheet.create({
     color: '#64748b',
     fontSize: 12,
     lineHeight: 16,
+  },
+  addToRow: {
+    marginTop: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  addToFieldsWrap: {
+    marginTop: 8,
+    gap: 6,
+  },
+  addToButton: {
+    marginTop: 4,
+    borderRadius: 10,
+    backgroundColor: '#1d4ed8',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  addToButtonText: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: '800',
   },
   modalActions: {
     flexDirection: 'row',
