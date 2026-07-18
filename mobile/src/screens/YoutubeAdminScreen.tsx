@@ -861,7 +861,7 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
             </View>
 
             <View style={styles.addToRow}>
-              <Text style={styles.modalHint}>
+              <Text style={[styles.modalHint, styles.addToHint]}>
                 Add this same video to another topic path and keep it pinned there.
               </Text>
               <TouchableOpacity
@@ -1766,6 +1766,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 12,
+  },
+  addToHint: {
+    flex: 1,
+    minWidth: 0,
   },
   addToFieldsWrap: {
     marginTop: 8,
