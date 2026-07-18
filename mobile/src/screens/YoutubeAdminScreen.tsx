@@ -569,7 +569,13 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
           {renderHelpButton('overview')}
         </View>
         <Text style={styles.subtitle}>Manage YouTube overrides or update topic, subtopic, and charge fields.</Text>
+      </View>
 
+      <ScrollView
+        style={styles.bodyScroll}
+        contentContainerStyle={styles.bodyScrollContent}
+        keyboardShouldPersistTaps="handled"
+      >
         <View style={styles.settingRow}>
           <View style={styles.settingTextWrap}>
             <Text style={styles.settingLabel}>Enable search card edit buttons</Text>
@@ -583,20 +589,14 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
             />
           </View>
         </View>
-      </View>
 
-      <View style={[styles.searchSection, styles.youtubeSearchSection]}>
-        <View style={styles.sectionTitleRow}>
-          <Text style={styles.sectionTitle}>YouTube search</Text>
-          <View style={styles.sectionHeaderActions}>{renderHelpButton('youtubeSearch')}</View>
-        </View>
+        <View style={styles.searchSection}>
+          <View style={styles.sectionTitleRow}>
+            <Text style={styles.sectionTitle}>YouTube search</Text>
+            <View style={styles.sectionHeaderActions}>{renderHelpButton('youtubeSearch')}</View>
+          </View>
 
-        <ScrollView
-          style={styles.youtubeToolsScroll}
-          contentContainerStyle={styles.youtubeToolsStack}
-          nestedScrollEnabled
-          keyboardShouldPersistTaps="handled"
-        >
+        <View style={styles.youtubeToolsStack}>
           <View style={styles.whitelistPanel}>
             <View style={styles.sectionTitleRow}>
               <Text style={styles.whitelistTitle}>Channel whitelist</Text>
@@ -685,7 +685,7 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
                       data={filteredWhitelistEntries}
                       keyExtractor={(entry) => entry.id.toString()}
                       style={styles.whitelistListScroll}
-                      nestedScrollEnabled
+                      scrollEnabled={false}
                       keyboardShouldPersistTaps="handled"
                       renderItem={({ item: entry }) => (
                         <View style={styles.whitelistItemRow}>
@@ -766,7 +766,7 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
                     keyExtractor={(item) => item.id.toString()}
                     renderItem={renderIndexItemCard}
                     style={styles.topicHierarchyList}
-                    nestedScrollEnabled
+                    scrollEnabled={false}
                     keyboardShouldPersistTaps="handled"
                     ListEmptyComponent={
                       <Text style={styles.whitelistEmptyText}>No matching index items found.</Text>
@@ -777,7 +777,7 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
             )}
           </View>
 
-        </ScrollView>
+        </View>
 
         <View style={styles.searchResultsDivider} />
 
@@ -815,6 +815,7 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
               sections={sections}
               keyExtractor={(item) => item.videoId}
               renderItem={renderVideoCard}
+              scrollEnabled={false}
               renderSectionHeader={({ section }) => (
                 <View style={styles.sectionHeader}>
                   <Text style={styles.sectionHeaderText}>{section.title}</Text>
@@ -832,6 +833,7 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
         </View>
 
       </View>
+      </ScrollView>
 
       <Modal visible={editingItem !== null} transparent animationType="fade" onRequestClose={closeEditVideo}>
         <View style={styles.modalBackdrop}>
@@ -1153,11 +1155,13 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#e2e8f0',
   },
-  youtubeSearchSection: {
+  bodyScroll: {
     flex: 1,
   },
+  bodyScrollContent: {
+    paddingBottom: 12,
+  },
   resultsSection: {
-    flex: 1,
     paddingTop: 8,
   },
   resultsSectionHeader: {
@@ -1216,9 +1220,6 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingBottom: 4,
   },
-  youtubeToolsScroll: {
-    maxHeight: 360,
-  },
   searchResultsDivider: {
     marginTop: 12,
     marginBottom: 6,
@@ -1258,7 +1259,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   whitelistListScroll: {
-    maxHeight: 220,
+    marginTop: 2,
   },
   whitelistBulkActionsRow: {
     flexDirection: 'row',
@@ -1360,7 +1361,6 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   topicHierarchyList: {
-    maxHeight: 300,
     marginTop: 6,
   },
   topicGroupCard: {
