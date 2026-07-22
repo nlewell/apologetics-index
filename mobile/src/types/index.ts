@@ -72,6 +72,7 @@ export interface TopicWithSubtopics {
 
 export interface YoutubeSearchItem {
   videoId: string;
+  sourceKey: string;
   title: string;
   description: string;
   channelTitle: string;
@@ -84,6 +85,7 @@ export interface YoutubeSearchItem {
   isShort: boolean;
   startTimestamp: string | null;
   keepOnRefresh: boolean;
+  pinOrder: number;
 }
 
 export interface YoutubeSearchResponse {
@@ -119,4 +121,20 @@ export interface YoutubeWhitelistEntry {
   isEnabled: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ContentSpreadsheetExportResponse {
+  filename: string;
+  generatedAt: string;
+  rowCount: number;
+  csv: string;
+}
+
+export interface ContentSpreadsheetImportResponse {
+  generatedAt: string;
+  rowsRead: number;
+  indexItemsCreated: number;
+  indexItemsUpdated: number;
+  pinnedRowsReplaced: number;
+  pinnedRowsImported: number;
 }

@@ -8,6 +8,8 @@ import { IndexItemsController } from './index-items.controller';
 import { IndexItemsService } from './index-items.service';
 import { ContentVersionController } from './content-version.controller';
 import { ContentVersionService } from './content-version.service';
+import { ContentSpreadsheetController } from './content-spreadsheet.controller';
+import { ContentSpreadsheetService } from './content-spreadsheet.service';
 import { ApiKeyGuard } from './api-key.guard';
 import { YoutubeController } from './youtube.controller';
 import { YoutubeService } from './youtube.service';
@@ -19,6 +21,7 @@ import { YoutubeIndexRefreshService } from './youtube-index-refresh.service';
     AppController,
     IndexItemsController,
     ContentVersionController,
+    ContentSpreadsheetController,
     YoutubeController,
   ],
   providers: [
@@ -26,6 +29,7 @@ import { YoutubeIndexRefreshService } from './youtube-index-refresh.service';
     PrismaService,
     IndexItemsService,
     ContentVersionService,
+    ContentSpreadsheetService,
     YoutubeService,
     YoutubeIndexRefreshService,
     {

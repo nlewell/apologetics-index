@@ -14,6 +14,8 @@ export type YoutubeSearchResult = {
     isShort: boolean;
     startTimestamp: string | null;
     keepOnRefresh: boolean;
+    sourceKey: string;
+    pinOrder: number;
 };
 export type YoutubeSearchResponse = {
     query: string;
@@ -71,6 +73,8 @@ export declare class YoutubeService {
         item: YoutubeSearchResult;
         startTimestamp: string | null;
         keepOnRefresh: boolean;
+        sourceKey?: string;
+        pinOrder?: number;
     }): Promise<YoutubeSearchResult>;
     private searchWithinChannel;
     private getCachedChannelSearch;

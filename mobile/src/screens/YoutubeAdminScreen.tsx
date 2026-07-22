@@ -1,9 +1,12 @@
 import React, { useState } from 'react';
 import {
+  Alert,
   ActivityIndicator,
   FlatList,
   Modal,
+  Platform,
   SafeAreaView,
+  Share,
   ScrollView,
   SectionList,
   StyleSheet,
@@ -15,6 +18,9 @@ import {
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as DocumentPicker from 'expo-document-picker';
+import * as Sharing from 'expo-sharing';
+import * as FileSystemLegacy from 'expo-file-system/legacy';
 import {
   useCreateIndexItem,
   useAddYoutubeWhitelistEntry,
@@ -27,12 +33,15 @@ import {
   useYoutubeSearch,
 } from '../hooks';
 import {
+  ContentSpreadsheetExportResponse,
+  ContentSpreadsheetImportResponse,
   IndexItem,
   YoutubeSearchItem,
   YoutubeWhitelistEntry,
 } from '../types';
 import { RootStackParamList } from '../types/navigation';
 import { formatApiError } from '../lib/formatApiError';
+import { apiClient } from '../lib/apiClient';
 import { SEARCH_CARD_EDIT_ENABLED_KEY } from '../constants/admin';
 
 type YoutubeAdminScreenProps = NativeStackScreenProps<RootStackParamList, 'YoutubeAdmin'>;
@@ -40,6 +49,13 @@ type YoutubeAdminScreenProps = NativeStackScreenProps<RootStackParamList, 'Youtu
 type VideoSection = {
   title: string;
   data: YoutubeSearchItem[];
+};
+
+type AdminTabKey = 'tools' | 'spreadsheet';
+
+type SpreadsheetStatus = {
+  kind: 'info' | 'success' | 'error';
+  message: string;
 };
 
 type HelpSectionKey =
@@ -138,6 +154,9 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
   const [newSubtopic, setNewSubtopic] = useState('');
   const [newCharge, setNewCharge] = useState('');
   const [helpSection, setHelpSection] = useState<HelpSectionKey | null>(null);
+  const [isSpreadsheetBusy, setIsSpreadsheetBusy] = useState(false);
+  const [activeAdminTab, setActiveAdminTab] = useState<AdminTabKey>('spreadsheet');
+  const [spreadsheetStatus, setSpreadsheetStatus] = useState<SpreadsheetStatus | null>(null);
 
   React.useEffect(() => {
     let isMounted = true;
@@ -227,10 +246,120 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
   );
 
   const rawSearchItems = searchData?.items ?? [];
-  const topMatchItems = rawSearchItems.filter((item) => item.keepOnRefresh);
+  const topMatchItems = rawSearchItems
+    .filter((item) => item.keepOnRefresh)
+    .sort((a, b) => a.pinOrder - b.pinOrder || a.title.localeCompare(b.title));
   const standardItems = rawSearchItems.filter((item) => !item.keepOnRefresh);
   const shortFormItems = standardItems.filter((item) => item.isShort);
   const longFormItems = standardItems.filter((item) => !item.isShort);
+
+  const exportSpreadsheet = async () => {
+    setIsSpreadsheetBusy(true);
+    setSpreadsheetStatus({ kind: 'info', message: 'Preparing CSV export...' });
+
+    try {
+      const response = await apiClient.get<ContentSpreadsheetExportResponse>(
+        '/content-spreadsheet/export',
+      );
+      const exportBaseDir =
+        FileSystemLegacy.documentDirectory ?? FileSystemLegacy.cacheDirectory;
+
+      if (exportBaseDir) {
+        const exportFileUri = `${exportBaseDir}${response.data.filename}`;
+
+        await FileSystemLegacy.writeAsStringAsync(exportFileUri, response.data.csv, {
+          encoding: FileSystemLegacy.EncodingType.UTF8,
+        });
+
+        if (await Sharing.isAvailableAsync()) {
+          await Sharing.shareAsync(exportFileUri, {
+            mimeType: 'text/csv',
+            dialogTitle: 'Export spreadsheet snapshot',
+          });
+          setSpreadsheetStatus({
+            kind: 'success',
+            message: `Export ready. Generated ${response.data.rowCount} rows and opened the share sheet.`,
+          });
+        } else {
+          const message = `CSV generated with ${response.data.rowCount} rows.`;
+          setSpreadsheetStatus({ kind: 'success', message });
+          Alert.alert('Export ready', message);
+        }
+      } else {
+        await Share.share({
+          title: response.data.filename,
+          message: response.data.csv,
+        });
+        setSpreadsheetStatus({
+          kind: 'success',
+          message: `Export ready. Generated ${response.data.rowCount} rows and shared CSV text directly.`,
+        });
+      }
+    } catch (error) {
+      const errorMessage = formatApiError(error);
+      setSpreadsheetStatus({ kind: 'error', message: errorMessage });
+      Alert.alert('Export failed', errorMessage);
+    } finally {
+      setIsSpreadsheetBusy(false);
+    }
+  };
+
+  const importSpreadsheet = async () => {
+    setIsSpreadsheetBusy(true);
+    setSpreadsheetStatus({ kind: 'info', message: 'Selecting spreadsheet file...' });
+
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['text/csv', 'text/plain', 'application/vnd.ms-excel'],
+        copyToCacheDirectory: true,
+        multiple: false,
+      });
+
+      if (result.canceled) {
+        setSpreadsheetStatus({ kind: 'info', message: 'Import cancelled.' });
+        return;
+      }
+
+      const selectedFile = result.assets[0];
+      setSpreadsheetStatus({ kind: 'info', message: `Importing ${selectedFile.name}...` });
+      let csv = '';
+
+      if (Platform.OS === 'web') {
+        if (selectedFile.file) {
+          csv = await selectedFile.file.text();
+        } else {
+          const webResponse = await fetch(selectedFile.uri);
+          csv = await webResponse.text();
+        }
+      } else {
+        csv = await FileSystemLegacy.readAsStringAsync(selectedFile.uri, {
+          encoding: FileSystemLegacy.EncodingType.UTF8,
+        });
+      }
+
+      const response = await apiClient.post<ContentSpreadsheetImportResponse>(
+        '/content-spreadsheet/import',
+        { csv },
+      );
+
+      Alert.alert(
+        'Import complete',
+        `Updated ${response.data.indexItemsCreated + response.data.indexItemsUpdated} topic rows and imported ${response.data.pinnedRowsImported} pinned videos.`,
+      );
+      setSpreadsheetStatus({
+        kind: 'success',
+        message: `Import complete. Updated ${response.data.indexItemsCreated + response.data.indexItemsUpdated} topic rows and imported ${response.data.pinnedRowsImported} pinned videos.`,
+      });
+
+      await Promise.all([refetchIndex(), refetch()]);
+    } catch (error) {
+      const errorMessage = formatApiError(error);
+      setSpreadsheetStatus({ kind: 'error', message: errorMessage });
+      Alert.alert('Import failed', errorMessage);
+    } finally {
+      setIsSpreadsheetBusy(false);
+    }
+  };
 
   const sections: VideoSection[] = [];
 
@@ -576,25 +705,108 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
         contentContainerStyle={styles.bodyScrollContent}
         keyboardShouldPersistTaps="handled"
       >
-        <View style={styles.settingRow}>
-          <View style={styles.settingTextWrap}>
-            <Text style={styles.settingLabel}>Enable search card edit buttons</Text>
-            <Text style={styles.settingHint}>Shows the Edit action on result cards in Search.</Text>
-          </View>
-          <View style={styles.settingActions}>
-            {renderHelpButton('searchCardEdit')}
-            <Switch
-              value={isSearchCardEditEnabled}
-              onValueChange={toggleSearchCardEditEnabled}
-            />
+        <View style={styles.tabRowWrap}>
+          <View style={styles.tabRow}>
+            <TouchableOpacity
+              style={[styles.tabButton, activeAdminTab === 'tools' && styles.tabButtonActive]}
+              onPress={() => setActiveAdminTab('tools')}
+              activeOpacity={0.8}
+            >
+              <Text style={[styles.tabButtonText, activeAdminTab === 'tools' && styles.tabButtonTextActive]}>
+                Admin tools
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.tabButton, activeAdminTab === 'spreadsheet' && styles.tabButtonActive]}
+              onPress={() => setActiveAdminTab('spreadsheet')}
+              activeOpacity={0.8}
+            >
+              <Text
+                style={[
+                  styles.tabButtonText,
+                  activeAdminTab === 'spreadsheet' && styles.tabButtonTextActive,
+                ]}
+              >
+                Spreadsheet
+              </Text>
+            </TouchableOpacity>
           </View>
         </View>
 
-        <View style={styles.searchSection}>
-          <View style={styles.sectionTitleRow}>
-            <Text style={styles.sectionTitle}>YouTube search</Text>
-            <View style={styles.sectionHeaderActions}>{renderHelpButton('youtubeSearch')}</View>
+        {activeAdminTab === 'spreadsheet' ? (
+          <View style={styles.searchSection}>
+            <View style={styles.whitelistPanel}>
+              <View style={styles.sectionTitleRow}>
+                <Text style={styles.whitelistTitle}>Spreadsheet</Text>
+              </View>
+              <Text style={styles.whitelistSubtitle}>
+                Export the latest topic and pinned-result snapshot, edit it in a spreadsheet,
+                then import the file back in.
+              </Text>
+              {spreadsheetStatus ? (
+                <View
+                  style={[
+                    styles.spreadsheetStatus,
+                    spreadsheetStatus.kind === 'success' && styles.spreadsheetStatusSuccess,
+                    spreadsheetStatus.kind === 'error' && styles.spreadsheetStatusError,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.spreadsheetStatusText,
+                      spreadsheetStatus.kind === 'success' && styles.spreadsheetStatusTextSuccess,
+                      spreadsheetStatus.kind === 'error' && styles.spreadsheetStatusTextError,
+                    ]}
+                  >
+                    {spreadsheetStatus.message}
+                  </Text>
+                </View>
+              ) : null}
+              <View style={styles.spreadsheetActions}>
+                <TouchableOpacity
+                  style={styles.addButton}
+                  onPress={exportSpreadsheet}
+                  activeOpacity={0.8}
+                  disabled={isSpreadsheetBusy}
+                >
+                  <Text style={styles.addButtonText}>
+                    {isSpreadsheetBusy ? 'Working...' : 'Export CSV'}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.addButton}
+                  onPress={importSpreadsheet}
+                  activeOpacity={0.8}
+                  disabled={isSpreadsheetBusy}
+                >
+                  <Text style={styles.addButtonText}>
+                    {isSpreadsheetBusy ? 'Working...' : 'Import CSV'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
           </View>
+        ) : (
+          <>
+            <View style={styles.settingRow}>
+              <View style={styles.settingTextWrap}>
+                <Text style={styles.settingLabel}>Enable search card edit buttons</Text>
+                <Text style={styles.settingHint}>Shows the Edit action on result cards in Search.</Text>
+              </View>
+              <View style={styles.settingActions}>
+                {renderHelpButton('searchCardEdit')}
+                <Switch
+                  value={isSearchCardEditEnabled}
+                  onValueChange={toggleSearchCardEditEnabled}
+                />
+              </View>
+            </View>
+
+            <View style={styles.searchSection}>
+              <View style={styles.sectionTitleRow}>
+                <Text style={styles.sectionTitle}>YouTube search</Text>
+                <View style={styles.sectionHeaderActions}>{renderHelpButton('youtubeSearch')}</View>
+              </View>
 
         <View style={styles.youtubeToolsStack}>
           <View style={styles.whitelistPanel}>
@@ -832,7 +1044,9 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
           )}
         </View>
 
-      </View>
+            </View>
+          </>
+        )}
       </ScrollView>
 
       <Modal visible={editingItem !== null} transparent animationType="fade" onRequestClose={closeEditVideo}>
@@ -1134,6 +1348,39 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
   },
+  spreadsheetActions: {
+    flexDirection: 'row',
+    gap: 10,
+    flexWrap: 'wrap',
+  },
+  spreadsheetStatus: {
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    backgroundColor: '#f8fafc',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  spreadsheetStatusSuccess: {
+    borderColor: '#bbf7d0',
+    backgroundColor: '#f0fdf4',
+  },
+  spreadsheetStatusError: {
+    borderColor: '#fecaca',
+    backgroundColor: '#fef2f2',
+  },
+  spreadsheetStatusText: {
+    color: '#334155',
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '600',
+  },
+  spreadsheetStatusTextSuccess: {
+    color: '#166534',
+  },
+  spreadsheetStatusTextError: {
+    color: '#991b1b',
+  },
   settingTextWrap: {
     flex: 1,
     gap: 3,
@@ -1160,6 +1407,35 @@ const styles = StyleSheet.create({
   },
   bodyScrollContent: {
     paddingBottom: 12,
+  },
+  tabRowWrap: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+  },
+  tabRow: {
+    flexDirection: 'row',
+    backgroundColor: '#e2e8f0',
+    borderRadius: 12,
+    padding: 4,
+    gap: 4,
+  },
+  tabButton: {
+    flex: 1,
+    borderRadius: 9,
+    paddingVertical: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tabButtonActive: {
+    backgroundColor: '#ffffff',
+  },
+  tabButtonText: {
+    color: '#334155',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  tabButtonTextActive: {
+    color: '#0f172a',
   },
   resultsSection: {
     paddingTop: 8,

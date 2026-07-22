@@ -286,6 +286,7 @@ let YoutubeService = class YoutubeService {
             return;
         }
         const itemsToStore = normalizedItems.map((item) => ({
+            sourceKey: item.sourceKey,
             videoId: item.videoId,
             title: item.title,
             description: item.description,
@@ -299,6 +300,7 @@ let YoutubeService = class YoutubeService {
             isShort: item.isShort,
             startTimestamp: item.startTimestamp,
             keepOnRefresh: item.keepOnRefresh,
+            pinOrder: item.pinOrder,
         }));
         await this.prismaService.youtubeVideoIndex.upsert({
             where: { query: cacheKey },
@@ -318,6 +320,8 @@ let YoutubeService = class YoutubeService {
         const mergedItem = this.applyOverrideToItem(input.item, {
             startTimestamp: input.startTimestamp,
             keepOnRefresh: input.keepOnRefresh,
+            sourceKey: input.sourceKey ?? input.item.sourceKey ?? '',
+            pinOrder: input.pinOrder ?? input.item.pinOrder ?? 0,
         });
         await this.prismaService.youtubeVideoMetadata.upsert({
             where: {
@@ -327,16 +331,20 @@ let YoutubeService = class YoutubeService {
                 },
             },
             update: {
+                sourceKey: input.sourceKey ?? '',
                 item: input.item,
                 startTimestamp: input.startTimestamp,
                 keepOnRefresh: input.keepOnRefresh,
+                pinOrder: input.pinOrder ?? input.item.pinOrder ?? 0,
             },
             create: {
+                sourceKey: input.sourceKey ?? '',
                 query: cacheKey,
                 videoId: input.videoId,
                 item: input.item,
                 startTimestamp: input.startTimestamp,
                 keepOnRefresh: input.keepOnRefresh,
+                pinOrder: input.pinOrder ?? input.item.pinOrder ?? 0,
             },
         });
         return mergedItem;
@@ -384,6 +392,8 @@ let YoutubeService = class YoutubeService {
                 isShort: false,
                 startTimestamp: null,
                 keepOnRefresh: false,
+                sourceKey: '',
+                pinOrder: 0,
             };
         })
             .filter((item) => item !== null);
@@ -401,6 +411,8 @@ let YoutubeService = class YoutubeService {
                 isShort: durationSeconds > 0 && durationSeconds <= this.shortsMaxSeconds,
                 startTimestamp: item.startTimestamp ?? null,
                 keepOnRefresh: item.keepOnRefresh ?? false,
+                sourceKey: item.sourceKey ?? '',
+                pinOrder: item.pinOrder ?? 0,
             };
             return {
                 ...enrichedItem,
@@ -479,11 +491,15 @@ let YoutubeService = class YoutubeService {
                     ...item,
                     startTimestamp: item.startTimestamp ?? null,
                     keepOnRefresh: item.keepOnRefresh ?? false,
+                    sourceKey: item.sourceKey ?? '',
+                    pinOrder: item.pinOrder ?? 0,
                 };
             }
             return this.applyOverrideToItem(item, {
                 startTimestamp: override.startTimestamp ?? null,
                 keepOnRefresh: override.keepOnRefresh,
+                sourceKey: override.sourceKey ?? '',
+                pinOrder: override.pinOrder ?? 0,
             });
         });
         return this.loadPreservedOverrideItems(cacheKey, mergedItems, forceRefresh);
@@ -505,7 +521,15 @@ let YoutubeService = class YoutubeService {
         if (!preservedItems.length) {
             return items;
         }
-        return [...items, ...preservedItems.filter((item) => !seenVideoIds.has(item.videoId))];
+        return [...items, ...preservedItems.filter((item) => !seenVideoIds.has(item.videoId))].sort((a, b) => {
+            if (a.keepOnRefresh !== b.keepOnRefresh) {
+                return a.keepOnRefresh ? -1 : 1;
+            }
+            if (a.keepOnRefresh && b.keepOnRefresh && a.pinOrder !== b.pinOrder) {
+                return a.pinOrder - b.pinOrder;
+            }
+            return 0;
+        });
     }
     overrideRowToSearchResult(row) {
         const snapshot = row.item;
@@ -523,6 +547,8 @@ let YoutubeService = class YoutubeService {
             isShort: snapshot.isShort ?? false,
             startTimestamp: row.startTimestamp ?? null,
             keepOnRefresh: row.keepOnRefresh,
+            sourceKey: row.sourceKey ?? '',
+            pinOrder: row.pinOrder ?? 0,
         };
         return this.applyStartTimestampToItem(item);
     }
@@ -531,6 +557,8 @@ let YoutubeService = class YoutubeService {
             ...item,
             startTimestamp: override.startTimestamp,
             keepOnRefresh: override.keepOnRefresh,
+            sourceKey: override.sourceKey,
+            pinOrder: override.pinOrder,
         };
         return this.applyStartTimestampToItem(merged);
     }
@@ -577,6 +605,8 @@ let YoutubeService = class YoutubeService {
             isShort: Boolean(row.isShort ?? false),
             startTimestamp: row.startTimestamp ?? null,
             keepOnRefresh: Boolean(row.keepOnRefresh ?? false),
+            sourceKey: row.sourceKey ?? '',
+            pinOrder: Number(row.pinOrder ?? 0),
         };
         return this.applyStartTimestampToItem(normalized);
     }

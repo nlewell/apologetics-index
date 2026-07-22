@@ -17,6 +17,8 @@ const index_items_controller_1 = require("./index-items.controller");
 const index_items_service_1 = require("./index-items.service");
 const content_version_controller_1 = require("./content-version.controller");
 const content_version_service_1 = require("./content-version.service");
+const content_spreadsheet_controller_1 = require("./content-spreadsheet.controller");
+const content_spreadsheet_service_1 = require("./content-spreadsheet.service");
 const api_key_guard_1 = require("./api-key.guard");
 const youtube_controller_1 = require("./youtube.controller");
 const youtube_service_1 = require("./youtube.service");
@@ -31,6 +33,7 @@ exports.AppModule = AppModule = __decorate([
             app_controller_1.AppController,
             index_items_controller_1.IndexItemsController,
             content_version_controller_1.ContentVersionController,
+            content_spreadsheet_controller_1.ContentSpreadsheetController,
             youtube_controller_1.YoutubeController,
         ],
         providers: [
@@ -38,6 +41,7 @@ exports.AppModule = AppModule = __decorate([
             prisma_service_1.PrismaService,
             index_items_service_1.IndexItemsService,
             content_version_service_1.ContentVersionService,
+            content_spreadsheet_service_1.ContentSpreadsheetService,
             youtube_service_1.YoutubeService,
             youtube_index_refresh_service_1.YoutubeIndexRefreshService,
             {

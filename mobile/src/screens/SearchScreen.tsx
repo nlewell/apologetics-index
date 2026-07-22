@@ -125,12 +125,24 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ navigation }) => {
 
   const hasYoutubeQuery = youtubeQuery.length > 0;
 
+  const topMatchItems = useMemo(() => {
+    const items = searchData?.items ?? [];
+    const pinnedItems = items
+      .filter((video) => video.keepOnRefresh)
+      .sort((a, b) => a.pinOrder - b.pinOrder || a.title.localeCompare(b.title));
+
+    if (pinnedItems.length > 0) {
+      return pinnedItems;
+    }
+
+    return items.slice(0, 1);
+  }, [searchData?.items]);
+
   const groupedSections = useMemo<VideoSection[]>(() => {
     const items = searchData?.items ?? [];
-    const topMatchVideoId = items[0]?.videoId;
-    const remainingItems = topMatchVideoId
-      ? items.filter((video) => video.videoId !== topMatchVideoId)
-      : items;
+    const pinnedItems = items.filter((video) => video.keepOnRefresh);
+    const remainingItems =
+      pinnedItems.length > 0 ? items.filter((video) => !video.keepOnRefresh) : items.slice(1);
 
     const longForm = remainingItems.filter((video) => !video.isShort);
     const shortForm = remainingItems.filter((video) => video.isShort);
@@ -154,8 +166,9 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ navigation }) => {
     return sections;
   }, [searchData]);
 
-  const topMatch = searchData?.items?.[0] ?? null;
   const topMatchDebugReason = useMemo(() => {
+    const topMatch = topMatchItems[0];
+
     if (!topMatch || !searchData?.debug?.enabled) {
       return null;
     }
@@ -171,7 +184,7 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ navigation }) => {
     return `Rank score ${scoreItem.relevanceScore}${
       scoreItem.preferredBoostApplied ? ' (preferred channel boost applied)' : ''
     }`;
-  }, [searchData?.debug, topMatch]);
+  }, [searchData?.debug, topMatchItems]);
 
   const runHierarchySearch = (queryText: string) => {
     const normalized = queryText.trim();
@@ -784,13 +797,19 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ navigation }) => {
             <Text style={styles.resultsTitle}>{`Results for "${youtubeQuery}"`}</Text>
           </View>
 
-          {topMatch ? (
+          {topMatchItems.length > 0 ? (
             <View style={styles.topMatchContainer}>
-              <Text style={styles.topMatchLabel}>Top match</Text>
-              {renderVideoCard({ item: topMatch })}
-              {topMatchDebugReason ? (
-                <Text style={styles.topMatchDebugText}>{topMatchDebugReason}</Text>
-              ) : null}
+              <Text style={styles.topMatchLabel}>
+                {topMatchItems.length > 1 ? `Top matches (${topMatchItems.length})` : 'Top match'}
+              </Text>
+              {topMatchItems.map((item, index) => (
+                <View key={item.videoId}>
+                  {renderVideoCard({ item })}
+                  {index === 0 && topMatchDebugReason ? (
+                    <Text style={styles.topMatchDebugText}>{topMatchDebugReason}</Text>
+                  ) : null}
+                </View>
+              ))}
             </View>
           ) : null}
 

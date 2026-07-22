@@ -53,6 +53,8 @@ export type YoutubeSearchResult = {
   isShort: boolean;
   startTimestamp: string | null;
   keepOnRefresh: boolean;
+  sourceKey: string;
+  pinOrder: number;
 };
 
 export type YoutubeSearchResponse = {
@@ -467,6 +469,7 @@ export class YoutubeService {
     }
 
     const itemsToStore = normalizedItems.map((item) => ({
+      sourceKey: item.sourceKey,
       videoId: item.videoId,
       title: item.title,
       description: item.description,
@@ -480,6 +483,7 @@ export class YoutubeService {
       isShort: item.isShort,
       startTimestamp: item.startTimestamp,
       keepOnRefresh: item.keepOnRefresh,
+      pinOrder: item.pinOrder,
     }));
 
     await this.prismaService.youtubeVideoIndex.upsert({
@@ -502,11 +506,15 @@ export class YoutubeService {
     item: YoutubeSearchResult;
     startTimestamp: string | null;
     keepOnRefresh: boolean;
+    sourceKey?: string;
+    pinOrder?: number;
   }): Promise<YoutubeSearchResult> {
     const cacheKey = this.normalizeQueryKey(input.query);
     const mergedItem = this.applyOverrideToItem(input.item, {
       startTimestamp: input.startTimestamp,
       keepOnRefresh: input.keepOnRefresh,
+      sourceKey: input.sourceKey ?? input.item.sourceKey ?? '',
+      pinOrder: input.pinOrder ?? input.item.pinOrder ?? 0,
     });
 
     await this.prismaService.youtubeVideoMetadata.upsert({
@@ -517,16 +525,20 @@ export class YoutubeService {
         },
       },
       update: {
+        sourceKey: input.sourceKey ?? '',
         item: input.item,
         startTimestamp: input.startTimestamp,
         keepOnRefresh: input.keepOnRefresh,
+        pinOrder: input.pinOrder ?? input.item.pinOrder ?? 0,
       },
       create: {
+        sourceKey: input.sourceKey ?? '',
         query: cacheKey,
         videoId: input.videoId,
         item: input.item,
         startTimestamp: input.startTimestamp,
         keepOnRefresh: input.keepOnRefresh,
+        pinOrder: input.pinOrder ?? input.item.pinOrder ?? 0,
       },
     });
 
@@ -593,6 +605,8 @@ export class YoutubeService {
           isShort: false,
           startTimestamp: null,
           keepOnRefresh: false,
+          sourceKey: '',
+          pinOrder: 0,
         };
       })
       .filter((item): item is YoutubeSearchResult => item !== null);
@@ -616,6 +630,8 @@ export class YoutubeService {
         isShort: durationSeconds > 0 && durationSeconds <= this.shortsMaxSeconds,
         startTimestamp: item.startTimestamp ?? null,
         keepOnRefresh: item.keepOnRefresh ?? false,
+        sourceKey: item.sourceKey ?? '',
+        pinOrder: item.pinOrder ?? 0,
       };
 
       return {
@@ -723,12 +739,16 @@ export class YoutubeService {
           ...item,
           startTimestamp: item.startTimestamp ?? null,
           keepOnRefresh: item.keepOnRefresh ?? false,
+          sourceKey: item.sourceKey ?? '',
+          pinOrder: item.pinOrder ?? 0,
         };
       }
 
       return this.applyOverrideToItem(item, {
         startTimestamp: override.startTimestamp ?? null,
         keepOnRefresh: override.keepOnRefresh,
+        sourceKey: override.sourceKey ?? '',
+        pinOrder: override.pinOrder ?? 0,
       });
     });
 
@@ -760,13 +780,27 @@ export class YoutubeService {
       return items;
     }
 
-    return [...items, ...preservedItems.filter((item) => !seenVideoIds.has(item.videoId))];
+    return [...items, ...preservedItems.filter((item) => !seenVideoIds.has(item.videoId))].sort(
+      (a, b) => {
+        if (a.keepOnRefresh !== b.keepOnRefresh) {
+          return a.keepOnRefresh ? -1 : 1;
+        }
+
+        if (a.keepOnRefresh && b.keepOnRefresh && a.pinOrder !== b.pinOrder) {
+          return a.pinOrder - b.pinOrder;
+        }
+
+        return 0;
+      },
+    );
   }
 
   private overrideRowToSearchResult(row: {
     item: unknown;
     startTimestamp: string | null;
     keepOnRefresh: boolean;
+    sourceKey?: string;
+    pinOrder?: number;
   }): YoutubeSearchResult {
     const snapshot = row.item as Partial<YoutubeSearchResult>;
     const item: YoutubeSearchResult = {
@@ -783,6 +817,8 @@ export class YoutubeService {
       isShort: snapshot.isShort ?? false,
       startTimestamp: row.startTimestamp ?? null,
       keepOnRefresh: row.keepOnRefresh,
+      sourceKey: row.sourceKey ?? '',
+      pinOrder: row.pinOrder ?? 0,
     };
 
     return this.applyStartTimestampToItem(item);
@@ -790,12 +826,19 @@ export class YoutubeService {
 
   private applyOverrideToItem(
     item: YoutubeSearchResult,
-    override: { startTimestamp: string | null; keepOnRefresh: boolean },
+    override: {
+      startTimestamp: string | null;
+      keepOnRefresh: boolean;
+      sourceKey: string;
+      pinOrder: number;
+    },
   ): YoutubeSearchResult {
     const merged: YoutubeSearchResult = {
       ...item,
       startTimestamp: override.startTimestamp,
       keepOnRefresh: override.keepOnRefresh,
+      sourceKey: override.sourceKey,
+      pinOrder: override.pinOrder,
     };
 
     return this.applyStartTimestampToItem(merged);
@@ -851,6 +894,8 @@ export class YoutubeService {
       isShort: Boolean(row.isShort ?? false),
       startTimestamp: row.startTimestamp ?? null,
       keepOnRefresh: Boolean(row.keepOnRefresh ?? false),
+      sourceKey: row.sourceKey ?? '',
+      pinOrder: Number(row.pinOrder ?? 0),
     };
 
     return this.applyStartTimestampToItem(normalized);
