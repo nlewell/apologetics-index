@@ -1,5 +1,7 @@
 export { useIndexItems, useIndexItemsTopics } from './useIndexItems';
 export { useYoutubeSearch } from './useYoutubeSearch';
+export { useYoutubeCommentsAnalysis } from './useYoutubeCommentsAnalysis';
+export { useYoutubeChannelCommentsSummary } from './useYoutubeChannelCommentsSummary';
 export { useYoutubeRecentQueries } from './useYoutubeRecentQueries';
 export { useSaveYoutubeSearchOverride } from './useSaveYoutubeSearchOverride';
 export { useIndexItemsTopicsWithSubtopics } from './useIndexItems';

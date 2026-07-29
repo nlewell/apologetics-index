@@ -1,4 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react';
+import { useQueries, useQueryClient } from '@tanstack/react-query';
 import {
   ActivityIndicator,
   Alert,
@@ -26,9 +27,10 @@ import {
   useYoutubeSearch,
 } from '../hooks';
 import { RootStackParamList } from '../types/navigation';
-import { YoutubeSearchItem } from '../types';
+import { YoutubeCommentsAnalysisResponse, YoutubeSearchItem } from '../types';
 import { formatApiError } from '../lib/formatApiError';
 import { SEARCH_CARD_EDIT_ENABLED_KEY } from '../constants/admin';
+import { apiClient } from '../lib/apiClient';
 
 type SearchScreenProps = NativeStackScreenProps<RootStackParamList, 'Search'>;
 
@@ -38,6 +40,7 @@ type VideoSection = {
 };
 
 export const SearchScreen: React.FC<SearchScreenProps> = ({ navigation }) => {
+  const queryClient = useQueryClient();
   const isYoutubeDebugEnabled =
     process.env.EXPO_PUBLIC_YOUTUBE_DEBUG === 'true';
   const adminAccessCode =
@@ -137,6 +140,40 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ navigation }) => {
 
     return items.slice(0, 1);
   }, [searchData?.items]);
+
+  const topMatchSummaryQueries = useQueries({
+    queries: topMatchItems.map((item) => ({
+      queryKey: ['youtubeCommentsAnalysis', item.videoId, 120, false, false],
+      queryFn: async (): Promise<YoutubeCommentsAnalysisResponse> => {
+        const response = await apiClient.get<YoutubeCommentsAnalysisResponse>(
+          '/youtube/comments-analysis',
+          {
+            params: {
+              videoId: item.videoId,
+              maxComments: 120,
+              generateIfMissing: false,
+            },
+          },
+        );
+
+        return response.data;
+      },
+      enabled: hasYoutubeQuery,
+      staleTime: 5 * 60 * 1000,
+      gcTime: 15 * 60 * 1000,
+      retry: 0,
+    })),
+  });
+
+  const topMatchSummaryByVideoId = useMemo(() => {
+    const map = new Map<string, (typeof topMatchSummaryQueries)[number]>();
+
+    topMatchItems.forEach((item, index) => {
+      map.set(item.videoId, topMatchSummaryQueries[index]);
+    });
+
+    return map;
+  }, [topMatchItems, topMatchSummaryQueries]);
 
   const groupedSections = useMemo<VideoSection[]>(() => {
     const items = searchData?.items ?? [];
@@ -242,7 +279,27 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ navigation }) => {
     runHierarchySearch(charge);
   };
 
-  const handleVideoPress = async (item: YoutubeSearchItem) => {
+  const ensureTopMatchSummaryCached = async (videoId: string) => {
+    await apiClient.get<YoutubeCommentsAnalysisResponse>('/youtube/comments-analysis', {
+      params: {
+        videoId,
+        maxComments: 120,
+        generateIfMissing: true,
+      },
+    });
+
+    await queryClient.invalidateQueries({
+      queryKey: ['youtubeCommentsAnalysis', videoId],
+    });
+  };
+
+  const handleVideoPress = async (item: YoutubeSearchItem, isTopMatch = false) => {
+    if (isTopMatch) {
+      void ensureTopMatchSummaryCached(item.videoId).catch((error) => {
+        console.warn('Failed to pre-cache top match comments analysis:', error);
+      });
+    }
+
     const url = item.videoUrl || `https://www.youtube.com/watch?v=${item.videoId}`;
     await Linking.openURL(url);
   };
@@ -338,13 +395,19 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ navigation }) => {
     navigation.navigate('YoutubeAdmin');
   };
 
-  const renderVideoCard = ({ item }: { item: YoutubeSearchItem }) => {
+  const renderVideoCard = ({
+    item,
+    isTopMatch = false,
+  }: {
+    item: YoutubeSearchItem;
+    isTopMatch?: boolean;
+  }) => {
     const url = item.videoUrl || `https://www.youtube.com/watch?v=${item.videoId}`;
 
     return (
       <TouchableOpacity
         style={styles.videoCard}
-        onPress={() => handleVideoPress(item)}
+        onPress={() => handleVideoPress(item, isTopMatch)}
         activeOpacity={0.8}
       >
         <View style={styles.videoMeta}>
@@ -804,10 +867,79 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ navigation }) => {
               </Text>
               {topMatchItems.map((item, index) => (
                 <View key={item.videoId}>
-                  {renderVideoCard({ item })}
+                  {renderVideoCard({ item, isTopMatch: true })}
                   {index === 0 && topMatchDebugReason ? (
                     <Text style={styles.topMatchDebugText}>{topMatchDebugReason}</Text>
                   ) : null}
+
+                  {(() => {
+                    const summaryQuery = topMatchSummaryByVideoId.get(item.videoId);
+
+                    if (!summaryQuery || summaryQuery.isLoading) {
+                      return (
+                        <Text style={styles.topMatchSummaryHint}>Checking cached comment summary...</Text>
+                      );
+                    }
+
+                    if (summaryQuery.isError) {
+                      return (
+                        <Text style={styles.topMatchSummaryHint}>Comment summary unavailable right now.</Text>
+                      );
+                    }
+
+                    const summary = summaryQuery.data;
+
+                    if (!summary || summary.cacheStatus === 'miss') {
+                      return (
+                        <Text style={styles.topMatchSummaryHint}>
+                          No cached comment summary yet. Opening this top match will generate and cache one.
+                        </Text>
+                      );
+                    }
+
+                    const cacheStatusLabel =
+                      summary.cacheStatus === 'hit'
+                        ? 'Pre-cached'
+                        : summary.cacheStatus === 'generated'
+                          ? 'Generated now'
+                          : 'Missing';
+
+                    return (
+                      <View
+                        style={[
+                          styles.topMatchSummaryCard,
+                          summary.cacheStatus === 'hit'
+                            ? styles.topMatchSummaryCardHit
+                            : styles.topMatchSummaryCardGenerated,
+                        ]}
+                      >
+                        <View style={styles.topMatchSummaryHeaderRow}>
+                          <Text style={styles.topMatchSummaryTitle}>Comment Summary</Text>
+                          <View
+                            style={[
+                              styles.topMatchSummaryStatusBadge,
+                              summary.cacheStatus === 'hit'
+                                ? styles.topMatchSummaryStatusBadgeHit
+                                : styles.topMatchSummaryStatusBadgeGenerated,
+                            ]}
+                          >
+                            <Text style={styles.topMatchSummaryStatusText}>
+                              {cacheStatusLabel}
+                            </Text>
+                          </View>
+                        </View>
+                        <Text style={styles.topMatchSummaryText}>{summary.overallSummary}</Text>
+                        <Text style={styles.topMatchSummaryMeta}>
+                          Confidence {summary.confidenceLevel.toUpperCase()} ({summary.confidenceScore.toFixed(2)})
+                        </Text>
+                        {summary.cachedAt ? (
+                          <Text style={styles.topMatchSummaryCachedAtText}>
+                            Cached {new Date(summary.cachedAt).toLocaleString()}
+                          </Text>
+                        ) : null}
+                      </View>
+                    );
+                  })()}
                 </View>
               ))}
             </View>
@@ -847,7 +979,7 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ navigation }) => {
         <SectionList
           sections={groupedSections}
           keyExtractor={(item) => item.videoId}
-          renderItem={renderVideoCard}
+          renderItem={({ item }) => renderVideoCard({ item })}
           renderSectionHeader={({ section }) => (
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionHeaderText}>{section.title}</Text>
@@ -1205,6 +1337,77 @@ const styles = StyleSheet.create({
     color: '#475569',
     fontSize: 11,
     fontStyle: 'italic',
+  },
+  topMatchSummaryCard: {
+    marginHorizontal: 14,
+    marginTop: -2,
+    marginBottom: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  topMatchSummaryCardHit: {
+    backgroundColor: '#ecfdf5',
+    borderColor: '#86efac',
+  },
+  topMatchSummaryCardGenerated: {
+    backgroundColor: '#fffbeb',
+    borderColor: '#fcd34d',
+  },
+  topMatchSummaryTitle: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#1e3a8a',
+    textTransform: 'uppercase',
+    marginBottom: 3,
+  },
+  topMatchSummaryHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 2,
+    gap: 8,
+  },
+  topMatchSummaryStatusBadge: {
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  topMatchSummaryStatusBadgeHit: {
+    backgroundColor: '#dcfce7',
+  },
+  topMatchSummaryStatusBadgeGenerated: {
+    backgroundColor: '#fef3c7',
+  },
+  topMatchSummaryStatusText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#1f2937',
+    textTransform: 'uppercase',
+  },
+  topMatchSummaryText: {
+    fontSize: 13,
+    color: '#1f2937',
+    lineHeight: 18,
+  },
+  topMatchSummaryMeta: {
+    marginTop: 5,
+    fontSize: 12,
+    color: '#1d4ed8',
+    fontWeight: '600',
+  },
+  topMatchSummaryCachedAtText: {
+    marginTop: 4,
+    fontSize: 11,
+    color: '#475569',
+  },
+  topMatchSummaryHint: {
+    marginHorizontal: 14,
+    marginTop: -2,
+    marginBottom: 10,
+    fontSize: 12,
+    color: '#6b7280',
   },
   sectionHeader: {
     paddingHorizontal: 14,

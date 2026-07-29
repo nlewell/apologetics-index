@@ -36,6 +36,7 @@ import {
   ContentSpreadsheetExportResponse,
   ContentSpreadsheetImportResponse,
   IndexItem,
+  YoutubePrecacheTopMatchCommentsResponse,
   YoutubeSearchItem,
   YoutubeWhitelistEntry,
 } from '../types';
@@ -157,6 +158,8 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
   const [isSpreadsheetBusy, setIsSpreadsheetBusy] = useState(false);
   const [activeAdminTab, setActiveAdminTab] = useState<AdminTabKey>('spreadsheet');
   const [spreadsheetStatus, setSpreadsheetStatus] = useState<SpreadsheetStatus | null>(null);
+  const [isTopMatchPrecacheBusy, setIsTopMatchPrecacheBusy] = useState(false);
+  const [topMatchPrecacheStatus, setTopMatchPrecacheStatus] = useState<string | null>(null);
 
   React.useEffect(() => {
     let isMounted = true;
@@ -246,9 +249,12 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
   );
 
   const rawSearchItems = searchData?.items ?? [];
-  const topMatchItems = rawSearchItems
+  const pinnedTopMatchItems = rawSearchItems
     .filter((item) => item.keepOnRefresh)
     .sort((a, b) => a.pinOrder - b.pinOrder || a.title.localeCompare(b.title));
+  const topMatchItems = pinnedTopMatchItems.length > 0
+    ? pinnedTopMatchItems
+    : rawSearchItems.slice(0, 1);
   const standardItems = rawSearchItems.filter((item) => !item.keepOnRefresh);
   const shortFormItems = standardItems.filter((item) => item.isShort);
   const longFormItems = standardItems.filter((item) => !item.isShort);
@@ -358,6 +364,38 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
       Alert.alert('Import failed', errorMessage);
     } finally {
       setIsSpreadsheetBusy(false);
+    }
+  };
+
+  const precacheTopMatchCommentSummaries = async () => {
+    const normalizedQuery = activeQuery.trim();
+
+    if (!normalizedQuery) {
+      setTopMatchPrecacheStatus('Pick a topic search first.');
+      return;
+    }
+
+    setIsTopMatchPrecacheBusy(true);
+    setTopMatchPrecacheStatus('Caching top match comment summaries...');
+
+    try {
+      const response = await apiClient.post<YoutubePrecacheTopMatchCommentsResponse>(
+        '/youtube/comments-analysis/precache-top-matches',
+        {
+          query: normalizedQuery,
+          maxResults: 5,
+          maxComments: 120,
+        },
+      );
+
+      const { generatedCount, hitCount, topMatchVideoIds } = response.data;
+      setTopMatchPrecacheStatus(
+        `Done. Cached ${generatedCount} new summaries, reused ${hitCount} cached summaries (${topMatchVideoIds.length} top matches).`,
+      );
+    } catch (error) {
+      setTopMatchPrecacheStatus(`Failed: ${formatApiError(error)}`);
+    } finally {
+      setIsTopMatchPrecacheBusy(false);
     }
   };
 
@@ -1004,6 +1042,26 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
             <Text style={styles.resultsGuidanceText}>
               Results can change based on which whitelist channels are enabled. If you do not like results for a topic, search YouTube for that topic, find a channel with the video you want, add that channel to the whitelist, and run Search again. When the video appears, tap Edit and enable Keep on refresh.
             </Text>
+
+            <View style={styles.topMatchPrecachePanel}>
+              <Text style={styles.topMatchPrecacheTitle}>Top Match Comment Summaries</Text>
+              <Text style={styles.topMatchPrecacheText}>
+                Pre-cache comment summaries for top matches so users see them without extra AI calls.
+              </Text>
+              <TouchableOpacity
+                style={styles.secondaryActionButton}
+                onPress={precacheTopMatchCommentSummaries}
+                activeOpacity={0.8}
+                disabled={isTopMatchPrecacheBusy || !activeQuery.trim()}
+              >
+                <Text style={styles.secondaryActionButtonText}>
+                  {isTopMatchPrecacheBusy ? 'Caching...' : 'Cache Top Match Summaries'}
+                </Text>
+              </TouchableOpacity>
+              {topMatchPrecacheStatus ? (
+                <Text style={styles.topMatchPrecacheStatus}>{topMatchPrecacheStatus}</Text>
+              ) : null}
+            </View>
           </View>
 
           {!activeQuery ? (
@@ -1463,6 +1521,29 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 17,
     fontWeight: '600',
+  },
+  topMatchPrecachePanel: {
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#fde68a',
+    gap: 8,
+  },
+  topMatchPrecacheTitle: {
+    color: '#78350f',
+    fontSize: 12,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  topMatchPrecacheText: {
+    color: '#92400e',
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  topMatchPrecacheStatus: {
+    color: '#1f2937',
+    fontSize: 12,
+    lineHeight: 16,
   },
   sectionTitleRow: {
     flexDirection: 'row',

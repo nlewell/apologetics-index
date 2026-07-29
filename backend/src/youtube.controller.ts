@@ -53,6 +53,77 @@ class YoutubeRecentQueriesDto {
   limit?: number;
 }
 
+class YoutubeCommentsAnalysisQueryDto {
+  @IsString()
+  @IsNotEmpty()
+  videoId!: string;
+
+  @IsOptional()
+  @IsString()
+  authorChannelId?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(10)
+  @Max(250)
+  maxComments?: number;
+
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === '1' || value === true)
+  @IsBoolean()
+  generateIfMissing?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === '1' || value === true)
+  @IsBoolean()
+  forceRefresh?: boolean;
+}
+
+class PrecacheTopMatchCommentsDto {
+  @IsString()
+  @IsNotEmpty()
+  query!: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(25)
+  maxResults?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(10)
+  @Max(250)
+  maxComments?: number;
+}
+
+class YoutubeChannelCommentsSummaryQueryDto {
+  @IsString()
+  @IsNotEmpty()
+  channelId!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  topicQuery!: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(10)
+  maxVideos?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(10)
+  @Max(250)
+  maxCommentsPerVideo?: number;
+}
+
 class YoutubeSearchOverrideDto {
   @IsString()
   query!: string;
@@ -106,6 +177,36 @@ export class YoutubeController {
       query.debug ?? false,
       query.forceRefresh ?? false,
     );
+  }
+
+  @Get('comments-analysis')
+  commentsAnalysis(@Query() query: YoutubeCommentsAnalysisQueryDto) {
+    return this.youtubeService.getCommentsAnalysis({
+      videoId: query.videoId,
+      authorChannelId: query.authorChannelId,
+      maxComments: query.maxComments ?? 120,
+      generateIfMissing: query.generateIfMissing ?? true,
+      forceRefresh: query.forceRefresh ?? false,
+    });
+  }
+
+  @Post('comments-analysis/precache-top-matches')
+  precacheTopMatchComments(@Body() body: PrecacheTopMatchCommentsDto) {
+    return this.youtubeService.precacheTopMatchComments({
+      query: body.query,
+      maxResults: body.maxResults ?? 5,
+      maxComments: body.maxComments ?? 120,
+    });
+  }
+
+  @Get('channel-comments-summary')
+  channelCommentsSummary(@Query() query: YoutubeChannelCommentsSummaryQueryDto) {
+    return this.youtubeService.getChannelCommentsSummary({
+      channelId: query.channelId,
+      topicQuery: query.topicQuery,
+      maxVideos: query.maxVideos ?? 3,
+      maxCommentsPerVideo: query.maxCommentsPerVideo ?? 100,
+    });
   }
 
   @Put('search-overrides')

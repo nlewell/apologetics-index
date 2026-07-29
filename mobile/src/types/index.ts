@@ -123,6 +123,59 @@ export interface YoutubeWhitelistEntry {
   updatedAt: string;
 }
 
+export interface YoutubeCommentArgument {
+  label: string;
+  summary: string;
+  supportCount: number;
+  supportPct: number;
+  engagementSupportScore: number;
+  strengthScore: number;
+  strength: 'weak' | 'medium' | 'strong';
+  whyStrong: string[];
+  whyWeak: string[];
+  exampleComments: string[];
+}
+
+export interface YoutubeCommentsAnalysisResponse {
+  videoId: string;
+  analyzedCommentCount: number;
+  sampleCommentCount: number;
+  authorChannelIdFilter: string | null;
+  cacheStatus: 'hit' | 'generated' | 'miss';
+  cachedAt: string | null;
+  overallSummary: string;
+  confidenceScore: number;
+  confidenceLevel: 'low' | 'medium' | 'high';
+  disagreementScore: number;
+  arguments: YoutubeCommentArgument[];
+}
+
+export interface YoutubePrecacheTopMatchCommentsResponse {
+  query: string;
+  maxResults: number;
+  maxComments: number;
+  topMatchVideoIds: string[];
+  generatedCount: number;
+  hitCount: number;
+}
+
+export interface YoutubeChannelCommentsSummaryResponse {
+  channelId: string;
+  topicQuery: string;
+  videosAnalyzed: number;
+  totalCommentsAnalyzed: number;
+  overallSummary: string;
+  confidenceScore: number;
+  confidenceLevel: 'low' | 'medium' | 'high';
+  disagreementScore: number;
+  topArguments: YoutubeCommentArgument[];
+  videoBreakdown: Array<{
+    videoId: string;
+    analyzedCommentCount: number;
+    confidenceScore: number;
+  }>;
+}
+
 export interface ContentSpreadsheetExportResponse {
   filename: string;
   generatedAt: string;

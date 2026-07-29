@@ -49,13 +49,81 @@ export type YoutubeWhitelistEntry = {
 export type YoutubeRecentQueriesResponse = {
     queries: string[];
 };
+export type YoutubeCommentArgument = {
+    label: string;
+    summary: string;
+    supportCount: number;
+    supportPct: number;
+    engagementSupportScore: number;
+    strengthScore: number;
+    strength: 'weak' | 'medium' | 'strong';
+    whyStrong: string[];
+    whyWeak: string[];
+    exampleComments: string[];
+};
+export type YoutubeCommentsAnalysisResponse = {
+    videoId: string;
+    analyzedCommentCount: number;
+    sampleCommentCount: number;
+    authorChannelIdFilter: string | null;
+    cacheStatus: 'hit' | 'generated' | 'miss';
+    cachedAt: string | null;
+    overallSummary: string;
+    confidenceScore: number;
+    confidenceLevel: 'low' | 'medium' | 'high';
+    disagreementScore: number;
+    arguments: YoutubeCommentArgument[];
+};
+export type YoutubePrecacheTopMatchCommentsResponse = {
+    query: string;
+    maxResults: number;
+    maxComments: number;
+    topMatchVideoIds: string[];
+    generatedCount: number;
+    hitCount: number;
+};
+export type YoutubeChannelCommentsSummaryResponse = {
+    channelId: string;
+    topicQuery: string;
+    videosAnalyzed: number;
+    totalCommentsAnalyzed: number;
+    overallSummary: string;
+    confidenceScore: number;
+    confidenceLevel: 'low' | 'medium' | 'high';
+    disagreementScore: number;
+    topArguments: YoutubeCommentArgument[];
+    videoBreakdown: Array<{
+        videoId: string;
+        analyzedCommentCount: number;
+        confidenceScore: number;
+    }>;
+};
 export declare class YoutubeService {
     private readonly configService;
     private readonly prismaService;
     private readonly memoryChannelIdCache;
+    private readonly commentsAnalysisCache;
     private readonly shortsMaxSeconds;
     private readonly cacheTtlMs;
     constructor(configService: ConfigService, prismaService: PrismaService);
+    getCommentsAnalysis(input: {
+        videoId: string;
+        authorChannelId?: string;
+        maxComments?: number;
+        generateIfMissing?: boolean;
+        forceRefresh?: boolean;
+    }): Promise<YoutubeCommentsAnalysisResponse>;
+    precacheTopMatchComments(input: {
+        query: string;
+        maxResults?: number;
+        maxComments?: number;
+    }): Promise<YoutubePrecacheTopMatchCommentsResponse>;
+    getChannelCommentsSummary(input: {
+        channelId: string;
+        topicQuery: string;
+        maxVideos?: number;
+        maxCommentsPerVideo?: number;
+    }): Promise<YoutubeChannelCommentsSummaryResponse>;
     listWhitelistEntries(): Promise<YoutubeWhitelistEntry[]>;
     addWhitelistEntry(entry: string): Promise<YoutubeWhitelistEntry>;
     updateAllWhitelistEntries(isEnabled: boolean): Promise<{
@@ -64,6 +132,21 @@ export declare class YoutubeService {
     updateWhitelistEntry(id: number, isEnabled: boolean): Promise<YoutubeWhitelistEntry>;
     listRecentQueries(limit?: number): Promise<YoutubeRecentQueriesResponse>;
     search(query: string, maxResults?: number, debug?: boolean, forceRefresh?: boolean): Promise<YoutubeSearchResponse>;
+    private fetchVideoComments;
+    private analyzeCommentsWithAi;
+    private buildCommentsAnalysisResponse;
+    private clamp01;
+    private buildCommentsAnalysisCacheKey;
+    private getCachedCommentsAnalysis;
+    private setCachedCommentsAnalysis;
+    private getPersistedCommentsAnalysis;
+    private setPersistedCommentsAnalysis;
+    private coerceCommentsAnalysisResponse;
+    private fetchChannelVideoIdsForTopic;
+    private computeConfidenceMetrics;
+    private restoreDisplayLabel;
+    private buildChannelSummaryText;
+    private get commentsAnalysisCacheTtlMs();
     private getCachedSearchResponse;
     private saveSearchResponse;
     private saveVideoIndex;

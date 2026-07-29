@@ -58,6 +58,101 @@ __decorate([
     (0, class_validator_1.Max)(25),
     __metadata("design:type", Number)
 ], YoutubeRecentQueriesDto.prototype, "limit", void 0);
+class YoutubeCommentsAnalysisQueryDto {
+    videoId;
+    authorChannelId;
+    maxComments;
+    generateIfMissing;
+    forceRefresh;
+}
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", String)
+], YoutubeCommentsAnalysisQueryDto.prototype, "videoId", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], YoutubeCommentsAnalysisQueryDto.prototype, "authorChannelId", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_transformer_1.Type)(() => Number),
+    (0, class_validator_1.IsInt)(),
+    (0, class_validator_1.Min)(10),
+    (0, class_validator_1.Max)(250),
+    __metadata("design:type", Number)
+], YoutubeCommentsAnalysisQueryDto.prototype, "maxComments", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_transformer_1.Transform)(({ value }) => value === 'true' || value === '1' || value === true),
+    (0, class_validator_1.IsBoolean)(),
+    __metadata("design:type", Boolean)
+], YoutubeCommentsAnalysisQueryDto.prototype, "generateIfMissing", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_transformer_1.Transform)(({ value }) => value === 'true' || value === '1' || value === true),
+    (0, class_validator_1.IsBoolean)(),
+    __metadata("design:type", Boolean)
+], YoutubeCommentsAnalysisQueryDto.prototype, "forceRefresh", void 0);
+class PrecacheTopMatchCommentsDto {
+    query;
+    maxResults;
+    maxComments;
+}
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", String)
+], PrecacheTopMatchCommentsDto.prototype, "query", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_transformer_1.Type)(() => Number),
+    (0, class_validator_1.IsInt)(),
+    (0, class_validator_1.Min)(1),
+    (0, class_validator_1.Max)(25),
+    __metadata("design:type", Number)
+], PrecacheTopMatchCommentsDto.prototype, "maxResults", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_transformer_1.Type)(() => Number),
+    (0, class_validator_1.IsInt)(),
+    (0, class_validator_1.Min)(10),
+    (0, class_validator_1.Max)(250),
+    __metadata("design:type", Number)
+], PrecacheTopMatchCommentsDto.prototype, "maxComments", void 0);
+class YoutubeChannelCommentsSummaryQueryDto {
+    channelId;
+    topicQuery;
+    maxVideos;
+    maxCommentsPerVideo;
+}
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", String)
+], YoutubeChannelCommentsSummaryQueryDto.prototype, "channelId", void 0);
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", String)
+], YoutubeChannelCommentsSummaryQueryDto.prototype, "topicQuery", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_transformer_1.Type)(() => Number),
+    (0, class_validator_1.IsInt)(),
+    (0, class_validator_1.Min)(1),
+    (0, class_validator_1.Max)(10),
+    __metadata("design:type", Number)
+], YoutubeChannelCommentsSummaryQueryDto.prototype, "maxVideos", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_transformer_1.Type)(() => Number),
+    (0, class_validator_1.IsInt)(),
+    (0, class_validator_1.Min)(10),
+    (0, class_validator_1.Max)(250),
+    __metadata("design:type", Number)
+], YoutubeChannelCommentsSummaryQueryDto.prototype, "maxCommentsPerVideo", void 0);
 class YoutubeSearchOverrideDto {
     query;
     videoId;
@@ -121,6 +216,30 @@ let YoutubeController = class YoutubeController {
     search(query) {
         return this.youtubeService.search(query.q, query.maxResults ?? 5, query.debug ?? false, query.forceRefresh ?? false);
     }
+    commentsAnalysis(query) {
+        return this.youtubeService.getCommentsAnalysis({
+            videoId: query.videoId,
+            authorChannelId: query.authorChannelId,
+            maxComments: query.maxComments ?? 120,
+            generateIfMissing: query.generateIfMissing ?? true,
+            forceRefresh: query.forceRefresh ?? false,
+        });
+    }
+    precacheTopMatchComments(body) {
+        return this.youtubeService.precacheTopMatchComments({
+            query: body.query,
+            maxResults: body.maxResults ?? 5,
+            maxComments: body.maxComments ?? 120,
+        });
+    }
+    channelCommentsSummary(query) {
+        return this.youtubeService.getChannelCommentsSummary({
+            channelId: query.channelId,
+            topicQuery: query.topicQuery,
+            maxVideos: query.maxVideos ?? 3,
+            maxCommentsPerVideo: query.maxCommentsPerVideo ?? 100,
+        });
+    }
     saveSearchOverride(body) {
         return this.youtubeService.saveSearchOverride({
             query: body.query,
@@ -158,6 +277,27 @@ __decorate([
     __metadata("design:paramtypes", [YoutubeSearchQueryDto]),
     __metadata("design:returntype", void 0)
 ], YoutubeController.prototype, "search", null);
+__decorate([
+    (0, common_1.Get)('comments-analysis'),
+    __param(0, (0, common_1.Query)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [YoutubeCommentsAnalysisQueryDto]),
+    __metadata("design:returntype", void 0)
+], YoutubeController.prototype, "commentsAnalysis", null);
+__decorate([
+    (0, common_1.Post)('comments-analysis/precache-top-matches'),
+    __param(0, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [PrecacheTopMatchCommentsDto]),
+    __metadata("design:returntype", void 0)
+], YoutubeController.prototype, "precacheTopMatchComments", null);
+__decorate([
+    (0, common_1.Get)('channel-comments-summary'),
+    __param(0, (0, common_1.Query)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [YoutubeChannelCommentsSummaryQueryDto]),
+    __metadata("design:returntype", void 0)
+], YoutubeController.prototype, "channelCommentsSummary", null);
 __decorate([
     (0, common_1.Put)('search-overrides'),
     __param(0, (0, common_1.Body)()),

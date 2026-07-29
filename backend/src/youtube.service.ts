@@ -39,6 +39,33 @@ type YoutubeVideoItem = {
   };
 };
 
+type YoutubeCommentThreadItem = {
+  id?: string;
+  snippet?: {
+    totalReplyCount?: number;
+    topLevelComment?: {
+      snippet?: {
+        textDisplay?: string;
+        textOriginal?: string;
+        likeCount?: number;
+        authorDisplayName?: string;
+        authorChannelId?: { value?: string };
+        publishedAt?: string;
+      };
+    };
+  };
+};
+
+type YoutubeCommentSample = {
+  id: string;
+  text: string;
+  likeCount: number;
+  replyCount: number;
+  authorDisplayName: string;
+  authorChannelId: string | null;
+  publishedAt: string;
+};
+
 export type YoutubeSearchResult = {
   videoId: string;
   title: string;
@@ -92,6 +119,83 @@ export type YoutubeRecentQueriesResponse = {
   queries: string[];
 };
 
+export type YoutubeCommentArgument = {
+  label: string;
+  summary: string;
+  supportCount: number;
+  supportPct: number;
+  engagementSupportScore: number;
+  strengthScore: number;
+  strength: 'weak' | 'medium' | 'strong';
+  whyStrong: string[];
+  whyWeak: string[];
+  exampleComments: string[];
+};
+
+export type YoutubeCommentsAnalysisResponse = {
+  videoId: string;
+  analyzedCommentCount: number;
+  sampleCommentCount: number;
+  authorChannelIdFilter: string | null;
+  cacheStatus: 'hit' | 'generated' | 'miss';
+  cachedAt: string | null;
+  overallSummary: string;
+  confidenceScore: number;
+  confidenceLevel: 'low' | 'medium' | 'high';
+  disagreementScore: number;
+  arguments: YoutubeCommentArgument[];
+};
+
+export type YoutubePrecacheTopMatchCommentsResponse = {
+  query: string;
+  maxResults: number;
+  maxComments: number;
+  topMatchVideoIds: string[];
+  generatedCount: number;
+  hitCount: number;
+};
+
+export type YoutubeChannelCommentsSummaryResponse = {
+  channelId: string;
+  topicQuery: string;
+  videosAnalyzed: number;
+  totalCommentsAnalyzed: number;
+  overallSummary: string;
+  confidenceScore: number;
+  confidenceLevel: 'low' | 'medium' | 'high';
+  disagreementScore: number;
+  topArguments: YoutubeCommentArgument[];
+  videoBreakdown: Array<{
+    videoId: string;
+    analyzedCommentCount: number;
+    confidenceScore: number;
+  }>;
+};
+
+type CommentsAnalysisCacheEntry = {
+  expiresAt: number;
+  response: YoutubeCommentsAnalysisResponse;
+};
+
+type AiArgumentDefinition = {
+  label?: string;
+  summary?: string;
+  strengthScore?: number;
+  whyStrong?: string[];
+  whyWeak?: string[];
+};
+
+type AiCommentClassification = {
+  commentId?: string;
+  label?: string;
+};
+
+type AiCommentsAnalysisPayload = {
+  overallSummary?: string;
+  arguments?: AiArgumentDefinition[];
+  classifications?: AiCommentClassification[];
+};
+
 type ScoredYoutubeSearchResult = YoutubeSearchResult & {
   relevanceScore: number;
   preferredBoostApplied: boolean;
@@ -100,6 +204,7 @@ type ScoredYoutubeSearchResult = YoutubeSearchResult & {
 @Injectable()
 export class YoutubeService {
   private readonly memoryChannelIdCache = new Map<string, string>();
+  private readonly commentsAnalysisCache = new Map<string, CommentsAnalysisCacheEntry>();
 
   private readonly shortsMaxSeconds: number;
 
@@ -111,6 +216,337 @@ export class YoutubeService {
     private readonly prismaService: PrismaService,
   ) {
     this.shortsMaxSeconds = this.getShortsMaxSeconds();
+  }
+
+  async getCommentsAnalysis(input: {
+    videoId: string;
+    authorChannelId?: string;
+    maxComments?: number;
+    generateIfMissing?: boolean;
+    forceRefresh?: boolean;
+  }): Promise<YoutubeCommentsAnalysisResponse> {
+    const videoId = input.videoId.trim();
+    if (!videoId) {
+      throw new BadRequestException('videoId is required.');
+    }
+
+    const boundedMaxComments = Number.isFinite(input.maxComments)
+      ? Math.min(250, Math.max(10, Math.trunc(input.maxComments ?? 120)))
+      : 120;
+    const normalizedAuthorChannelId = input.authorChannelId?.trim() || null;
+    const generateIfMissing = input.generateIfMissing ?? true;
+    const cacheKey = this.buildCommentsAnalysisCacheKey(
+      videoId,
+      normalizedAuthorChannelId,
+      boundedMaxComments,
+    );
+
+    if (!input.forceRefresh) {
+      const cached = await this.getCachedCommentsAnalysis(cacheKey);
+      if (cached) {
+        return cached;
+      }
+
+      const persisted = await this.getPersistedCommentsAnalysis(cacheKey);
+      if (persisted) {
+        this.setCachedCommentsAnalysis(cacheKey, persisted);
+        return persisted;
+      }
+    }
+
+    if (!generateIfMissing) {
+      return {
+        videoId,
+        analyzedCommentCount: 0,
+        sampleCommentCount: 0,
+        authorChannelIdFilter: normalizedAuthorChannelId,
+        cacheStatus: 'miss',
+        cachedAt: null,
+        overallSummary:
+          'Comment summary is not cached yet. Open this top match to generate and cache it.',
+        confidenceScore: 0,
+        confidenceLevel: 'low',
+        disagreementScore: 1,
+        arguments: [],
+      };
+    }
+
+    const apiKey = this.configService.get<string>('YOUTUBE_API_KEY');
+    if (!apiKey) {
+      throw new ServiceUnavailableException(
+        'YOUTUBE_API_KEY is not configured on the server',
+      );
+    }
+
+    const comments = await this.fetchVideoComments(
+      videoId,
+      boundedMaxComments,
+      apiKey,
+    );
+    const filteredComments = normalizedAuthorChannelId
+      ? comments.filter((comment) => comment.authorChannelId === normalizedAuthorChannelId)
+      : comments;
+
+    if (!filteredComments.length) {
+      const response: YoutubeCommentsAnalysisResponse = {
+        videoId,
+        analyzedCommentCount: 0,
+        sampleCommentCount: comments.length,
+        authorChannelIdFilter: normalizedAuthorChannelId,
+        cacheStatus: 'generated',
+        cachedAt: new Date().toISOString(),
+        overallSummary: 'No comments matched the selected filter.',
+        confidenceScore: 0,
+        confidenceLevel: 'low',
+        disagreementScore: 1,
+        arguments: [],
+      };
+
+      this.setCachedCommentsAnalysis(cacheKey, response);
+      await this.setPersistedCommentsAnalysis(cacheKey, videoId, normalizedAuthorChannelId, boundedMaxComments, response);
+      return response;
+    }
+
+    const aiPayload = await this.analyzeCommentsWithAi(videoId, filteredComments);
+    const response = this.buildCommentsAnalysisResponse(
+      videoId,
+      comments.length,
+      normalizedAuthorChannelId,
+      filteredComments,
+      aiPayload,
+    );
+
+    this.setCachedCommentsAnalysis(cacheKey, response);
+    await this.setPersistedCommentsAnalysis(cacheKey, videoId, normalizedAuthorChannelId, boundedMaxComments, response);
+    return response;
+  }
+
+  async precacheTopMatchComments(input: {
+    query: string;
+    maxResults?: number;
+    maxComments?: number;
+  }): Promise<YoutubePrecacheTopMatchCommentsResponse> {
+    const query = input.query.trim();
+    if (!query) {
+      throw new BadRequestException('query is required.');
+    }
+
+    const maxResults = Number.isFinite(input.maxResults)
+      ? Math.min(25, Math.max(1, Math.trunc(input.maxResults ?? 5)))
+      : 5;
+    const maxComments = Number.isFinite(input.maxComments)
+      ? Math.min(250, Math.max(10, Math.trunc(input.maxComments ?? 120)))
+      : 120;
+
+    const searchResult = await this.search(query, maxResults, false, false);
+    const pinnedItems = searchResult.items
+      .filter((video) => video.keepOnRefresh)
+      .sort((a, b) => a.pinOrder - b.pinOrder || a.title.localeCompare(b.title));
+    const topMatchItems = pinnedItems.length > 0 ? pinnedItems : searchResult.items.slice(0, 1);
+
+    let generatedCount = 0;
+    let hitCount = 0;
+
+    for (const video of topMatchItems) {
+      const analysis = await this.getCommentsAnalysis({
+        videoId: video.videoId,
+        maxComments,
+        generateIfMissing: true,
+        forceRefresh: false,
+      });
+
+      if (analysis.cacheStatus === 'generated') {
+        generatedCount += 1;
+      } else if (analysis.cacheStatus === 'hit') {
+        hitCount += 1;
+      }
+    }
+
+    return {
+      query,
+      maxResults,
+      maxComments,
+      topMatchVideoIds: topMatchItems.map((video) => video.videoId),
+      generatedCount,
+      hitCount,
+    };
+  }
+
+  async getChannelCommentsSummary(input: {
+    channelId: string;
+    topicQuery: string;
+    maxVideos?: number;
+    maxCommentsPerVideo?: number;
+  }): Promise<YoutubeChannelCommentsSummaryResponse> {
+    const channelId = input.channelId.trim();
+    const topicQuery = input.topicQuery.trim();
+
+    if (!channelId) {
+      throw new BadRequestException('channelId is required.');
+    }
+
+    if (!topicQuery) {
+      throw new BadRequestException('topicQuery is required.');
+    }
+
+    const maxVideos = Number.isFinite(input.maxVideos)
+      ? Math.min(10, Math.max(1, Math.trunc(input.maxVideos ?? 3)))
+      : 3;
+    const maxCommentsPerVideo = Number.isFinite(input.maxCommentsPerVideo)
+      ? Math.min(250, Math.max(10, Math.trunc(input.maxCommentsPerVideo ?? 100)))
+      : 100;
+
+    const apiKey = this.configService.get<string>('YOUTUBE_API_KEY');
+    if (!apiKey) {
+      throw new ServiceUnavailableException(
+        'YOUTUBE_API_KEY is not configured on the server',
+      );
+    }
+
+    const videoIds = await this.fetchChannelVideoIdsForTopic(
+      channelId,
+      topicQuery,
+      maxVideos,
+      apiKey,
+    );
+
+    if (!videoIds.length) {
+      return {
+        channelId,
+        topicQuery,
+        videosAnalyzed: 0,
+        totalCommentsAnalyzed: 0,
+        overallSummary: 'No matching videos found for this channel and topic query.',
+        confidenceScore: 0,
+        confidenceLevel: 'low',
+        disagreementScore: 1,
+        topArguments: [],
+        videoBreakdown: [],
+      };
+    }
+
+    const analyses = await Promise.all(
+      videoIds.map((videoId) =>
+        this.getCommentsAnalysis({
+          videoId,
+          maxComments: maxCommentsPerVideo,
+          forceRefresh: false,
+        }),
+      ),
+    );
+
+    const nonEmptyAnalyses = analyses.filter((analysis) => analysis.analyzedCommentCount > 0);
+
+    if (!nonEmptyAnalyses.length) {
+      return {
+        channelId,
+        topicQuery,
+        videosAnalyzed: analyses.length,
+        totalCommentsAnalyzed: 0,
+        overallSummary: 'No comments were available to analyze for the selected videos.',
+        confidenceScore: 0,
+        confidenceLevel: 'low',
+        disagreementScore: 1,
+        topArguments: [],
+        videoBreakdown: analyses.map((analysis) => ({
+          videoId: analysis.videoId,
+          analyzedCommentCount: analysis.analyzedCommentCount,
+          confidenceScore: analysis.confidenceScore,
+        })),
+      };
+    }
+
+    const aggregateMap = new Map<
+      string,
+      {
+        totalSupport: number;
+        weightedStrengthSum: number;
+        whyStrong: string[];
+        whyWeak: string[];
+        summaries: string[];
+        examples: string[];
+      }
+    >();
+
+    let totalCommentsAnalyzed = 0;
+
+    for (const analysis of nonEmptyAnalyses) {
+      totalCommentsAnalyzed += analysis.analyzedCommentCount;
+
+      for (const argument of analysis.arguments) {
+        const key = this.normalizeText(argument.label);
+        const entry = aggregateMap.get(key) ?? {
+          totalSupport: 0,
+          weightedStrengthSum: 0,
+          whyStrong: [],
+          whyWeak: [],
+          summaries: [],
+          examples: [],
+        };
+
+        entry.totalSupport += argument.supportCount;
+        entry.weightedStrengthSum += argument.strengthScore * argument.supportCount;
+        entry.whyStrong.push(...argument.whyStrong);
+        entry.whyWeak.push(...argument.whyWeak);
+        if (argument.summary) {
+          entry.summaries.push(argument.summary);
+        }
+        entry.examples.push(...argument.exampleComments);
+        aggregateMap.set(key, entry);
+      }
+    }
+
+    const topArguments = Array.from(aggregateMap.entries())
+      .map(([key, value]) => {
+        const supportPct = totalCommentsAnalyzed
+          ? Number(((value.totalSupport / totalCommentsAnalyzed) * 100).toFixed(1))
+          : 0;
+        const strengthScore = value.totalSupport
+          ? this.clamp01(value.weightedStrengthSum / value.totalSupport)
+          : 0;
+
+        return {
+          label: this.restoreDisplayLabel(key),
+          summary: value.summaries[0] ?? 'No summary provided.',
+          supportCount: value.totalSupport,
+          supportPct,
+          engagementSupportScore: Number(value.totalSupport.toFixed(2)),
+          strengthScore: Number(strengthScore.toFixed(2)),
+          strength:
+            strengthScore >= 0.7
+              ? ('strong' as const)
+              : strengthScore >= 0.4
+                ? ('medium' as const)
+                : ('weak' as const),
+          whyStrong: Array.from(new Set(value.whyStrong)).slice(0, 4),
+          whyWeak: Array.from(new Set(value.whyWeak)).slice(0, 4),
+          exampleComments: Array.from(new Set(value.examples)).slice(0, 3),
+        };
+      })
+      .sort((a, b) => b.supportCount - a.supportCount)
+      .slice(0, 8);
+
+    const confidence = this.computeConfidenceMetrics(
+      totalCommentsAnalyzed,
+      topArguments.map((argument) => argument.supportCount),
+    );
+
+    return {
+      channelId,
+      topicQuery,
+      videosAnalyzed: analyses.length,
+      totalCommentsAnalyzed,
+      overallSummary: this.buildChannelSummaryText(topicQuery, topArguments),
+      confidenceScore: confidence.confidenceScore,
+      confidenceLevel: confidence.confidenceLevel,
+      disagreementScore: confidence.disagreementScore,
+      topArguments,
+      videoBreakdown: analyses.map((analysis) => ({
+        videoId: analysis.videoId,
+        analyzedCommentCount: analysis.analyzedCommentCount,
+        confidenceScore: analysis.confidenceScore,
+      })),
+    };
   }
 
   async listWhitelistEntries(): Promise<YoutubeWhitelistEntry[]> {
@@ -391,6 +827,511 @@ export class YoutubeService {
     }
 
     return response;
+  }
+
+  private async fetchVideoComments(
+    videoId: string,
+    maxComments: number,
+    apiKey: string,
+  ): Promise<YoutubeCommentSample[]> {
+    const comments: YoutubeCommentSample[] = [];
+    let pageToken: string | null = null;
+
+    while (comments.length < maxComments) {
+      const url = new URL('https://www.googleapis.com/youtube/v3/commentThreads');
+      url.searchParams.set('part', 'snippet');
+      url.searchParams.set('videoId', videoId);
+      url.searchParams.set('maxResults', String(Math.min(100, maxComments - comments.length)));
+      url.searchParams.set('order', 'relevance');
+      url.searchParams.set('textFormat', 'plainText');
+      url.searchParams.set('key', apiKey);
+
+      if (pageToken) {
+        url.searchParams.set('pageToken', pageToken);
+      }
+
+      const response = await fetch(url);
+      if (!response.ok) {
+        const text = await response.text();
+        throw new BadGatewayException(
+          `YouTube comments request failed (${response.status}): ${text}`,
+        );
+      }
+
+      const payload = (await response.json()) as {
+        nextPageToken?: string;
+        items?: YoutubeCommentThreadItem[];
+      };
+
+      for (const item of payload.items ?? []) {
+        const snippet = item.snippet?.topLevelComment?.snippet;
+        if (!item.id || !snippet) {
+          continue;
+        }
+
+        const text = (snippet.textOriginal ?? snippet.textDisplay ?? '').trim();
+        if (!text) {
+          continue;
+        }
+
+        comments.push({
+          id: item.id,
+          text,
+          likeCount: Number(snippet.likeCount ?? 0),
+          replyCount: Number(item.snippet?.totalReplyCount ?? 0),
+          authorDisplayName: snippet.authorDisplayName ?? 'Unknown',
+          authorChannelId: snippet.authorChannelId?.value ?? null,
+          publishedAt: snippet.publishedAt ?? '',
+        });
+
+        if (comments.length >= maxComments) {
+          break;
+        }
+      }
+
+      pageToken = payload.nextPageToken ?? null;
+      if (!pageToken) {
+        break;
+      }
+    }
+
+    return comments;
+  }
+
+  private async analyzeCommentsWithAi(
+    videoId: string,
+    comments: YoutubeCommentSample[],
+  ): Promise<AiCommentsAnalysisPayload> {
+    const openAiKey = this.configService.get<string>('OPENAI_API_KEY');
+    if (!openAiKey) {
+      throw new ServiceUnavailableException(
+        'OPENAI_API_KEY is not configured on the server',
+      );
+    }
+
+    const model =
+      this.configService.get<string>('OPENAI_ANALYSIS_MODEL') ?? 'gpt-4.1-mini';
+
+    const commentPayload = comments.map((comment) => ({
+      id: comment.id,
+      text: comment.text,
+      likeCount: comment.likeCount,
+      replyCount: comment.replyCount,
+    }));
+
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${openAiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model,
+        temperature: 0.2,
+        response_format: { type: 'json_object' },
+        messages: [
+          {
+            role: 'system',
+            content:
+              'You analyze YouTube comments and return strict JSON only. Group comments into concise argument labels, classify every comment to one label, and evaluate argument strength on a 0-1 scale.',
+          },
+          {
+            role: 'user',
+            content: [
+              `Video ID: ${videoId}`,
+              'Return JSON with keys: overallSummary (string), arguments (array), classifications (array).',
+              'arguments[] object keys: label (string), summary (string), strengthScore (number 0..1), whyStrong (string[]), whyWeak (string[]).',
+              'classifications[] object keys: commentId (string), label (string). Include one entry for each comment ID.',
+              'Keep argument labels short and specific (2-6 words).',
+              `Comments JSON: ${JSON.stringify(commentPayload)}`,
+            ].join('\n\n'),
+          },
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new BadGatewayException(
+        `AI analysis request failed (${response.status}): ${text}`,
+      );
+    }
+
+    const payload = (await response.json()) as {
+      choices?: Array<{ message?: { content?: string | null } }>;
+    };
+
+    const content = payload.choices?.[0]?.message?.content;
+    if (!content) {
+      throw new BadGatewayException('AI analysis response was empty.');
+    }
+
+    try {
+      return JSON.parse(content) as AiCommentsAnalysisPayload;
+    } catch {
+      throw new BadGatewayException('AI analysis returned invalid JSON.');
+    }
+  }
+
+  private buildCommentsAnalysisResponse(
+    videoId: string,
+    sampleCommentCount: number,
+    authorChannelIdFilter: string | null,
+    comments: YoutubeCommentSample[],
+    aiPayload: AiCommentsAnalysisPayload,
+  ): YoutubeCommentsAnalysisResponse {
+    const fallbackLabel = 'Other';
+
+    const commentById = new Map(comments.map((comment) => [comment.id, comment]));
+    const definitionsByLabel = new Map<string, AiArgumentDefinition>();
+    for (const argument of aiPayload.arguments ?? []) {
+      const label = (argument.label ?? '').trim();
+      if (!label) {
+        continue;
+      }
+
+      definitionsByLabel.set(label, argument);
+    }
+
+    const countsByLabel = new Map<string, number>();
+    const weightedByLabel = new Map<string, number>();
+    const examplesByLabel = new Map<string, string[]>();
+    const seenCommentIds = new Set<string>();
+
+    for (const classification of aiPayload.classifications ?? []) {
+      const commentId = (classification.commentId ?? '').trim();
+      const mapped = commentById.get(commentId);
+
+      if (!mapped || seenCommentIds.has(commentId)) {
+        continue;
+      }
+
+      seenCommentIds.add(commentId);
+      const labelCandidate = (classification.label ?? '').trim();
+      const label = labelCandidate || fallbackLabel;
+
+      countsByLabel.set(label, (countsByLabel.get(label) ?? 0) + 1);
+
+      const weight = 1 + Math.min(20, Math.max(0, mapped.likeCount)) / 20;
+      weightedByLabel.set(label, (weightedByLabel.get(label) ?? 0) + weight);
+
+      const examples = examplesByLabel.get(label) ?? [];
+      if (examples.length < 3) {
+        examples.push(mapped.text);
+      }
+      examplesByLabel.set(label, examples);
+    }
+
+    for (const comment of comments) {
+      if (seenCommentIds.has(comment.id)) {
+        continue;
+      }
+
+      countsByLabel.set(fallbackLabel, (countsByLabel.get(fallbackLabel) ?? 0) + 1);
+      const weight = 1 + Math.min(20, Math.max(0, comment.likeCount)) / 20;
+      weightedByLabel.set(
+        fallbackLabel,
+        (weightedByLabel.get(fallbackLabel) ?? 0) + weight,
+      );
+
+      const examples = examplesByLabel.get(fallbackLabel) ?? [];
+      if (examples.length < 3) {
+        examples.push(comment.text);
+      }
+      examplesByLabel.set(fallbackLabel, examples);
+    }
+
+    const analyzedCommentCount = comments.length;
+    const argumentsList: YoutubeCommentArgument[] = Array.from(
+      countsByLabel.entries(),
+    )
+      .map(([label, supportCount]) => {
+        const def = definitionsByLabel.get(label);
+        const strengthScore = this.clamp01(Number(def?.strengthScore ?? 0.5));
+        const strength: YoutubeCommentArgument['strength'] =
+          strengthScore >= 0.7 ? 'strong' : strengthScore >= 0.4 ? 'medium' : 'weak';
+
+        return {
+          label,
+          summary: def?.summary?.trim() || 'No summary provided.',
+          supportCount,
+          supportPct: Number(((supportCount / analyzedCommentCount) * 100).toFixed(1)),
+          engagementSupportScore: Number(
+            (weightedByLabel.get(label) ?? supportCount).toFixed(2),
+          ),
+          strengthScore: Number(strengthScore.toFixed(2)),
+          strength,
+          whyStrong: Array.isArray(def?.whyStrong)
+            ? def!.whyStrong!.filter((x) => typeof x === 'string').slice(0, 4)
+            : [],
+          whyWeak: Array.isArray(def?.whyWeak)
+            ? def!.whyWeak!.filter((x) => typeof x === 'string').slice(0, 4)
+            : [],
+          exampleComments: (examplesByLabel.get(label) ?? []).slice(0, 3),
+        };
+      })
+      .sort((a, b) => b.supportCount - a.supportCount)
+      .slice(0, 8);
+
+    const confidence = this.computeConfidenceMetrics(
+      analyzedCommentCount,
+      argumentsList.map((argument) => argument.supportCount),
+    );
+
+    return {
+      videoId,
+      analyzedCommentCount,
+      sampleCommentCount,
+      authorChannelIdFilter,
+      cacheStatus: 'generated',
+      cachedAt: new Date().toISOString(),
+      overallSummary: aiPayload.overallSummary?.trim() || 'Summary unavailable.',
+      confidenceScore: confidence.confidenceScore,
+      confidenceLevel: confidence.confidenceLevel,
+      disagreementScore: confidence.disagreementScore,
+      arguments: argumentsList,
+    };
+  }
+
+  private clamp01(value: number): number {
+    if (!Number.isFinite(value)) {
+      return 0;
+    }
+
+    return Math.max(0, Math.min(1, value));
+  }
+
+  private buildCommentsAnalysisCacheKey(
+    videoId: string,
+    authorChannelId: string | null,
+    maxComments: number,
+  ): string {
+    return `${videoId}|${authorChannelId ?? 'all'}|${maxComments}`;
+  }
+
+  private async getCachedCommentsAnalysis(
+    cacheKey: string,
+  ): Promise<YoutubeCommentsAnalysisResponse | null> {
+    const entry = this.commentsAnalysisCache.get(cacheKey);
+    if (!entry) {
+      return null;
+    }
+
+    if (Date.now() > entry.expiresAt) {
+      this.commentsAnalysisCache.delete(cacheKey);
+      return null;
+    }
+
+    return {
+      ...entry.response,
+      cacheStatus: 'hit',
+    };
+  }
+
+  private setCachedCommentsAnalysis(
+    cacheKey: string,
+    response: YoutubeCommentsAnalysisResponse,
+  ): void {
+    this.commentsAnalysisCache.set(cacheKey, {
+      expiresAt: Date.now() + this.commentsAnalysisCacheTtlMs,
+      response,
+    });
+  }
+
+  private async getPersistedCommentsAnalysis(
+    cacheKey: string,
+  ): Promise<YoutubeCommentsAnalysisResponse | null> {
+    const row = await this.prismaService.youtubeCommentAnalysisCache.findUnique({
+      where: { cacheKey },
+    });
+
+    if (!row) {
+      return null;
+    }
+
+    const parsed = this.coerceCommentsAnalysisResponse(row.analysis);
+    if (!parsed) {
+      return null;
+    }
+
+    return {
+      ...parsed,
+      cacheStatus: 'hit',
+      cachedAt: row.refreshedAt.toISOString(),
+    };
+  }
+
+  private async setPersistedCommentsAnalysis(
+    cacheKey: string,
+    videoId: string,
+    authorChannelId: string | null,
+    maxComments: number,
+    response: YoutubeCommentsAnalysisResponse,
+  ): Promise<void> {
+    const refreshedAt = new Date();
+    const toStore: YoutubeCommentsAnalysisResponse = {
+      ...response,
+      cacheStatus: 'generated',
+      cachedAt: refreshedAt.toISOString(),
+    };
+
+    await this.prismaService.youtubeCommentAnalysisCache.upsert({
+      where: { cacheKey },
+      update: {
+        videoId,
+        authorChannelId,
+        maxComments,
+        analysis: toStore,
+        analyzedComments: toStore.analyzedCommentCount,
+        refreshedAt,
+      },
+      create: {
+        cacheKey,
+        videoId,
+        authorChannelId,
+        maxComments,
+        analysis: toStore,
+        analyzedComments: toStore.analyzedCommentCount,
+        refreshedAt,
+      },
+    });
+  }
+
+  private coerceCommentsAnalysisResponse(
+    value: unknown,
+  ): YoutubeCommentsAnalysisResponse | null {
+    if (!value || typeof value !== 'object') {
+      return null;
+    }
+
+    const row = value as Partial<YoutubeCommentsAnalysisResponse>;
+    if (!row.videoId) {
+      return null;
+    }
+
+    return {
+      videoId: row.videoId,
+      analyzedCommentCount: Number(row.analyzedCommentCount ?? 0),
+      sampleCommentCount: Number(row.sampleCommentCount ?? 0),
+      authorChannelIdFilter: row.authorChannelIdFilter ?? null,
+      cacheStatus: row.cacheStatus ?? 'generated',
+      cachedAt: row.cachedAt ?? null,
+      overallSummary: row.overallSummary ?? 'Summary unavailable.',
+      confidenceScore: Number(row.confidenceScore ?? 0),
+      confidenceLevel: row.confidenceLevel ?? 'low',
+      disagreementScore: Number(row.disagreementScore ?? 1),
+      arguments: Array.isArray(row.arguments) ? row.arguments : [],
+    };
+  }
+
+  private async fetchChannelVideoIdsForTopic(
+    channelId: string,
+    topicQuery: string,
+    maxVideos: number,
+    apiKey: string,
+  ): Promise<string[]> {
+    const url = new URL('https://www.googleapis.com/youtube/v3/search');
+    url.searchParams.set('part', 'snippet');
+    url.searchParams.set('type', 'video');
+    url.searchParams.set('order', 'relevance');
+    url.searchParams.set('channelId', channelId);
+    url.searchParams.set('q', topicQuery);
+    url.searchParams.set('maxResults', String(maxVideos));
+    url.searchParams.set('key', apiKey);
+
+    const response = await fetch(url);
+    if (!response.ok) {
+      const text = await response.text();
+      throw new BadGatewayException(
+        `YouTube channel video search failed (${response.status}): ${text}`,
+      );
+    }
+
+    const payload = (await response.json()) as { items?: YoutubeSearchItem[] };
+
+    const ids = (payload.items ?? [])
+      .map((item) => item.id?.videoId)
+      .filter((videoId): videoId is string => Boolean(videoId));
+
+    return Array.from(new Set(ids));
+  }
+
+  private computeConfidenceMetrics(
+    analyzedCommentCount: number,
+    supportCounts: number[],
+  ): {
+    confidenceScore: number;
+    confidenceLevel: 'low' | 'medium' | 'high';
+    disagreementScore: number;
+  } {
+    if (analyzedCommentCount <= 0 || supportCounts.length === 0) {
+      return {
+        confidenceScore: 0,
+        confidenceLevel: 'low',
+        disagreementScore: 1,
+      };
+    }
+
+    const total = supportCounts.reduce((sum, value) => sum + Math.max(0, value), 0);
+    const probabilities = supportCounts
+      .map((value) => (total > 0 ? value / total : 0))
+      .filter((p) => p > 0);
+
+    const entropy = -probabilities.reduce((sum, p) => sum + p * Math.log2(p), 0);
+    const maxEntropy = probabilities.length > 1 ? Math.log2(probabilities.length) : 1;
+    const disagreementScore = this.clamp01(maxEntropy > 0 ? entropy / maxEntropy : 0);
+    const agreementScore = 1 - disagreementScore;
+
+    const sampleScore = this.clamp01(analyzedCommentCount / 120);
+    const confidenceScore = this.clamp01(sampleScore * 0.65 + agreementScore * 0.35);
+
+    const confidenceLevel: 'low' | 'medium' | 'high' =
+      confidenceScore >= 0.75 ? 'high' : confidenceScore >= 0.45 ? 'medium' : 'low';
+
+    return {
+      confidenceScore: Number(confidenceScore.toFixed(2)),
+      confidenceLevel,
+      disagreementScore: Number(disagreementScore.toFixed(2)),
+    };
+  }
+
+  private restoreDisplayLabel(normalized: string): string {
+    return normalized
+      .split(' ')
+      .filter((part) => part.length > 0)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(' ');
+  }
+
+  private buildChannelSummaryText(
+    topicQuery: string,
+    topArguments: YoutubeCommentArgument[],
+  ): string {
+    if (!topArguments.length) {
+      return `No clear argument patterns were found for "${topicQuery}".`;
+    }
+
+    const top = topArguments[0];
+    const second = topArguments[1];
+
+    if (!second) {
+      return `For "${topicQuery}", the dominant argument was "${top.label}" with ${top.supportPct}% support.`;
+    }
+
+    return `For "${topicQuery}", the leading arguments were "${top.label}" (${top.supportPct}%) and "${second.label}" (${second.supportPct}%).`;
+  }
+
+  private get commentsAnalysisCacheTtlMs(): number {
+    const configuredRaw = this.configService.get<string>(
+      'YOUTUBE_COMMENTS_ANALYSIS_CACHE_TTL_HOURS',
+    );
+    const configured = Number(configuredRaw);
+
+    if (Number.isFinite(configured) && configured > 0) {
+      return configured * 60 * 60 * 1000;
+    }
+
+    return 24 * 60 * 60 * 1000;
   }
 
   private async getCachedSearchResponse(

@@ -31,7 +31,8 @@
     "owner": "nlewell",
     "plugins": [
       "expo-font",
-      "expo-status-bar"
+      "expo-status-bar",
+      "expo-sharing"
     ],
     "runtimeVersion": {
       "policy": "appVersion"

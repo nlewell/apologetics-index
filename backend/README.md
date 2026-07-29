@@ -164,3 +164,75 @@ Example call:
 curl -H "x-api-key: YOUR_APP_API_KEY" \
   "http://localhost:3000/api/youtube/search?q=book%20of%20mormon&maxResults=5"
 ```
+
+## YouTube Comment Analysis (AI)
+
+This backend can analyze arguments in comments for a specific YouTube video:
+
+```bash
+GET /api/youtube/comments-analysis?videoId=VIDEO_ID&maxComments=120
+```
+
+Cached-only lookup (does not trigger AI generation on cache miss):
+
+```bash
+GET /api/youtube/comments-analysis?videoId=VIDEO_ID&maxComments=120&generateIfMissing=false
+```
+
+Force refresh (bypass cache and regenerate):
+
+```bash
+GET /api/youtube/comments-analysis?videoId=VIDEO_ID&maxComments=120&forceRefresh=true
+```
+
+Optional filters:
+
+```bash
+GET /api/youtube/comments-analysis?videoId=VIDEO_ID&authorChannelId=UC...&maxComments=120
+```
+
+Required environment variables:
+
+```bash
+YOUTUBE_API_KEY="your-youtube-data-api-key"
+OPENAI_API_KEY="your-openai-api-key"
+```
+
+Optional model override:
+
+```bash
+OPENAI_ANALYSIS_MODEL="gpt-4.1-mini"
+```
+
+Optional in-memory analysis cache TTL:
+
+```bash
+YOUTUBE_COMMENTS_ANALYSIS_CACHE_TTL_HOURS="24"
+```
+
+Channel-level topic summary across multiple videos:
+
+```bash
+GET /api/youtube/channel-comments-summary?channelId=UC...&topicQuery=book%20of%20mormon&maxVideos=3&maxCommentsPerVideo=100
+```
+
+This endpoint fetches top matching videos from a channel for the topic query,
+analyzes comments per video (using cached analyses when available), then returns
+an aggregated argument summary.
+
+Admin pre-cache for top matches of a topic query:
+
+```bash
+POST /api/youtube/comments-analysis/precache-top-matches
+{
+  "query": "book of mormon",
+  "maxResults": 5,
+  "maxComments": 120
+}
+```
+
+This pre-populates top-match comment summaries so users can see summaries
+without triggering immediate AI generation.
+
+The response groups major argument clusters, estimates support per argument,
+and includes AI-generated strength scoring with reasons for strengths/weaknesses.
