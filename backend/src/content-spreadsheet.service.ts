@@ -232,26 +232,23 @@ export class ContentSpreadsheetService {
 
     for (const entry of normalizedRows) {
       const row = entry.row;
+      const hasTopicContext = this.hasTopicContext(row);
+      const hasAnyVideoData = this.hasAnyVideoData(row);
       const resolvedVideoId = this.extractVideoId(row.videoId, row.videoUrl);
 
-      if (!row.videoId && !row.videoUrl) {
+      if (!hasTopicContext) {
         validationErrors.push(
-          `Row ${entry.rowNumber}: provide either videoId or videoUrl.`,
-        );
-      } else if (!resolvedVideoId) {
-        validationErrors.push(
-          `Row ${entry.rowNumber}: unable to resolve a YouTube video ID from provided videoId/videoUrl.`,
+          `Row ${entry.rowNumber}: provide at least one of generalTopic, subtopic, or charge.`,
         );
       }
 
-      const derivedQuery = this.buildTopicPathQuery(
-        row.generalTopic,
-        row.subtopic,
-        row.charge,
-      );
-      if (!row.searchQuery && !derivedQuery) {
+      if (hasAnyVideoData && !row.videoId && !row.videoUrl) {
         validationErrors.push(
-          `Row ${entry.rowNumber}: provide searchQuery or topic/subtopic/charge so a query can be derived.`,
+          `Row ${entry.rowNumber}: provide either videoId or videoUrl when importing YouTube video data.`,
+        );
+      } else if ((row.videoId || row.videoUrl) && !resolvedVideoId) {
+        validationErrors.push(
+          `Row ${entry.rowNumber}: unable to resolve a YouTube video ID from provided videoId/videoUrl.`,
         );
       }
     }
@@ -592,6 +589,30 @@ export class ContentSpreadsheetService {
     const normalize = (value: string | null) => (value ?? '').trim().toLowerCase();
 
     return [normalize(topicValue), normalize(subtopicValue), normalize(chargeValue)].join('||');
+  }
+
+  private hasTopicContext(row: SpreadsheetImportRow): boolean {
+    return Boolean(row.generalTopic || row.subtopic || row.charge);
+  }
+
+  private hasAnyVideoData(row: SpreadsheetImportRow): boolean {
+    return Boolean(
+      row.videoId ||
+        row.videoTitle ||
+        row.videoDescription ||
+        row.channelTitle ||
+        row.channelId ||
+        row.publishedAt ||
+        row.thumbnailUrl ||
+        row.videoUrl ||
+        row.duration ||
+        row.durationSeconds !== null ||
+        row.isShort !== null ||
+        row.startTimestamp ||
+        row.keepOnRefresh !== null ||
+        row.pinOrder !== null ||
+        row.youtubeItemJson,
+    );
   }
 
   private normalizeQueryKey(query: string): string {
