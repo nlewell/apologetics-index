@@ -50,13 +50,32 @@ run() {
 }
 
 run_healthcheck() {
-  local curl_args=(--fail --silent --show-error --retry "$HEALTHCHECK_RETRIES" --retry-delay "$HEALTHCHECK_RETRY_DELAY" --retry-connrefused)
+  local attempt=1
+  local curl_args=(--fail --silent --show-error)
 
-  if [[ -n "${API_KEY:-}" ]]; then
-    curl "${curl_args[@]}" -H "x-api-key: $API_KEY" "$HEALTHCHECK_URL" >/dev/null
-  else
-    curl "${curl_args[@]}" "$HEALTHCHECK_URL" >/dev/null
-  fi
+  while [[ "$attempt" -le "$HEALTHCHECK_RETRIES" ]]; do
+    if [[ -n "${API_KEY:-}" ]]; then
+      if curl "${curl_args[@]}" -H "x-api-key: $API_KEY" "$HEALTHCHECK_URL" >/dev/null; then
+        echo "Health check passed on attempt $attempt/$HEALTHCHECK_RETRIES"
+        return 0
+      fi
+    else
+      if curl "${curl_args[@]}" "$HEALTHCHECK_URL" >/dev/null; then
+        echo "Health check passed on attempt $attempt/$HEALTHCHECK_RETRIES"
+        return 0
+      fi
+    fi
+
+    if [[ "$attempt" -lt "$HEALTHCHECK_RETRIES" ]]; then
+      echo "Health check attempt $attempt/$HEALTHCHECK_RETRIES failed; retrying in ${HEALTHCHECK_RETRY_DELAY}s..."
+      sleep "$HEALTHCHECK_RETRY_DELAY"
+    fi
+
+    attempt=$((attempt + 1))
+  done
+
+  echo "Health check failed after $HEALTHCHECK_RETRIES attempts"
+  return 1
 }
 
 echo "Deploy script starting (root: $ROOT_DIR)"
@@ -129,7 +148,7 @@ fi
 if command -v curl >/dev/null 2>&1; then
   echo "Running health check: $HEALTHCHECK_URL"
   if [[ "$DRY_RUN" == "1" ]]; then
-    echo "+ curl --fail --silent --show-error --retry $HEALTHCHECK_RETRIES --retry-delay $HEALTHCHECK_RETRY_DELAY --retry-connrefused $HEALTHCHECK_URL"
+    echo "+ health check with up to $HEALTHCHECK_RETRIES attempts and ${HEALTHCHECK_RETRY_DELAY}s delay"
   else
     run_healthcheck
   fi
