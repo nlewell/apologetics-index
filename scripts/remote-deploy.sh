@@ -9,6 +9,8 @@ INSTALL_DEPS="${INSTALL_DEPS:-0}"
 BUILD_APP="${BUILD_APP:-0}"
 RUN_MIGRATIONS="${RUN_MIGRATIONS:-0}"
 HEALTHCHECK_URL="${HEALTHCHECK_URL:-http://127.0.0.1:3000/api}"
+HEALTHCHECK_RETRIES="${HEALTHCHECK_RETRIES:-10}"
+HEALTHCHECK_RETRY_DELAY="${HEALTHCHECK_RETRY_DELAY:-2}"
 DRY_RUN=0
 INSTALLED_DEV_DEPS=0
 
@@ -24,6 +26,8 @@ Options:
   BUILD_APP=1         Run npm run build before restart (default: 0)
   RUN_MIGRATIONS=1    Run Prisma deploy migrations (default: 0)
   HEALTHCHECK_URL=url URL to verify after restart (default: http://127.0.0.1:3000/api)
+  HEALTHCHECK_RETRIES=n  Retry count for health check after restart (default: 10)
+  HEALTHCHECK_RETRY_DELAY=s  Seconds between health check attempts (default: 2)
 EOF
 }
 
@@ -42,6 +46,16 @@ run() {
   else
     echo "-> $*"
     "$@"
+  fi
+}
+
+run_healthcheck() {
+  local curl_args=(--fail --silent --show-error --retry "$HEALTHCHECK_RETRIES" --retry-delay "$HEALTHCHECK_RETRY_DELAY" --retry-connrefused)
+
+  if [[ -n "${API_KEY:-}" ]]; then
+    curl "${curl_args[@]}" -H "x-api-key: $API_KEY" "$HEALTHCHECK_URL" >/dev/null
+  else
+    curl "${curl_args[@]}" "$HEALTHCHECK_URL" >/dev/null
   fi
 }
 
@@ -114,10 +128,10 @@ fi
 
 if command -v curl >/dev/null 2>&1; then
   echo "Running health check: $HEALTHCHECK_URL"
-  if [[ -n "${API_KEY:-}" ]]; then
-    run curl --fail --silent --show-error -H "x-api-key: $API_KEY" "$HEALTHCHECK_URL" >/dev/null
+  if [[ "$DRY_RUN" == "1" ]]; then
+    echo "+ curl --fail --silent --show-error --retry $HEALTHCHECK_RETRIES --retry-delay $HEALTHCHECK_RETRY_DELAY --retry-connrefused $HEALTHCHECK_URL"
   else
-    run curl --fail --silent --show-error "$HEALTHCHECK_URL" >/dev/null
+    run_healthcheck
   fi
 fi
 

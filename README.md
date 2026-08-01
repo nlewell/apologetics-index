@@ -126,12 +126,18 @@ Defaults are memory-safe:
 - Skips build
 - Skips migrations
 - Pulls latest git commit and restarts systemd service
-- Runs health check at `http://127.0.0.1:3000/api`
+- Runs a retrying health check at `http://127.0.0.1:3000/api`
 
 Optional toggles:
 
 ```bash
 INSTALL_DEPS=1 BUILD_APP=1 RUN_MIGRATIONS=1 ./scripts/remote-deploy.sh
+```
+
+Health check timing can be tuned on slower hosts:
+
+```bash
+HEALTHCHECK_RETRIES=15 HEALTHCHECK_RETRY_DELAY=2 ./scripts/remote-deploy.sh
 ```
 
 Use this only when you intentionally need dependency reinstall/build/migration.
