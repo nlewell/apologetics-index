@@ -160,6 +160,7 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
   const [spreadsheetStatus, setSpreadsheetStatus] = useState<SpreadsheetStatus | null>(null);
   const [isTopMatchPrecacheBusy, setIsTopMatchPrecacheBusy] = useState(false);
   const [topMatchPrecacheStatus, setTopMatchPrecacheStatus] = useState<string | null>(null);
+  const [showTopMatchPrecachePanel, setShowTopMatchPrecachePanel] = useState(false);
 
   React.useEffect(() => {
     let isMounted = true;
@@ -593,12 +594,16 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
     }
 
     setSelectedIndexItemForEdit(item);
+    setShowTopMatchPrecachePanel(true);
+    setTopMatchPrecacheStatus(null);
     runHierarchySearch(queryText);
   };
 
   const resetIndexItemSearch = () => {
     setActiveQuery('');
     setSelectedIndexItemForEdit(null);
+    setShowTopMatchPrecachePanel(false);
+    setTopMatchPrecacheStatus(null);
     refetchIndex();
   };
 
@@ -974,9 +979,13 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
                     <Text style={styles.helpButtonText}>Reset</Text>
                   </TouchableOpacity>
                 ) : null}
-                {renderToggleButton(isIndexItemsCollapsed, () =>
-                  setIsIndexItemsCollapsed((previous) => !previous),
-                )}
+                {renderToggleButton(isIndexItemsCollapsed, () => {
+                  if (!isIndexItemsCollapsed) {
+                    resetIndexItemSearch();
+                  }
+
+                  setIsIndexItemsCollapsed((previous) => !previous);
+                })}
               </View>
             </View>
 
@@ -1043,25 +1052,27 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
               Results can change based on which whitelist channels are enabled. If you do not like results for a topic, search YouTube for that topic, find a channel with the video you want, add that channel to the whitelist, and run Search again. When the video appears, tap Edit and enable Keep on refresh.
             </Text>
 
-            <View style={styles.topMatchPrecachePanel}>
-              <Text style={styles.topMatchPrecacheTitle}>Top Match Comment Summaries</Text>
-              <Text style={styles.topMatchPrecacheText}>
-                Pre-cache comment summaries for top matches so users see them without extra AI calls.
-              </Text>
-              <TouchableOpacity
-                style={styles.secondaryActionButton}
-                onPress={precacheTopMatchCommentSummaries}
-                activeOpacity={0.8}
-                disabled={isTopMatchPrecacheBusy || !activeQuery.trim()}
-              >
-                <Text style={styles.secondaryActionButtonText}>
-                  {isTopMatchPrecacheBusy ? 'Caching...' : 'Cache Top Match Summaries'}
+            {showTopMatchPrecachePanel ? (
+              <View style={styles.topMatchPrecachePanel}>
+                <Text style={styles.topMatchPrecacheTitle}>Top Match Comment Summaries</Text>
+                <Text style={styles.topMatchPrecacheText}>
+                  Pre-cache comment summaries for top matches so users see them without extra AI calls.
                 </Text>
-              </TouchableOpacity>
-              {topMatchPrecacheStatus ? (
-                <Text style={styles.topMatchPrecacheStatus}>{topMatchPrecacheStatus}</Text>
-              ) : null}
-            </View>
+                <TouchableOpacity
+                  style={styles.secondaryActionButton}
+                  onPress={precacheTopMatchCommentSummaries}
+                  activeOpacity={0.8}
+                  disabled={isTopMatchPrecacheBusy || !activeQuery.trim()}
+                >
+                  <Text style={styles.secondaryActionButtonText}>
+                    {isTopMatchPrecacheBusy ? 'Caching...' : 'Cache Top Match Summaries'}
+                  </Text>
+                </TouchableOpacity>
+                {topMatchPrecacheStatus ? (
+                  <Text style={styles.topMatchPrecacheStatus}>{topMatchPrecacheStatus}</Text>
+                ) : null}
+              </View>
+            ) : null}
           </View>
 
           {!activeQuery ? (
