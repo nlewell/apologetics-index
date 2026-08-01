@@ -148,16 +148,17 @@ let ContentSpreadsheetService = class ContentSpreadsheetService {
         const validationErrors = [];
         for (const entry of normalizedRows) {
             const row = entry.row;
+            const hasTopicContext = this.hasTopicContext(row);
+            const hasAnyVideoData = this.hasAnyVideoData(row);
             const resolvedVideoId = this.extractVideoId(row.videoId, row.videoUrl);
-            if (!row.videoId && !row.videoUrl) {
-                validationErrors.push(`Row ${entry.rowNumber}: provide either videoId or videoUrl.`);
+            if (!hasTopicContext) {
+                validationErrors.push(`Row ${entry.rowNumber}: provide at least one of generalTopic, subtopic, or charge.`);
             }
-            else if (!resolvedVideoId) {
+            if (hasAnyVideoData && !row.videoId && !row.videoUrl) {
+                validationErrors.push(`Row ${entry.rowNumber}: provide either videoId or videoUrl when importing YouTube video data.`);
+            }
+            else if ((row.videoId || row.videoUrl) && !resolvedVideoId) {
                 validationErrors.push(`Row ${entry.rowNumber}: unable to resolve a YouTube video ID from provided videoId/videoUrl.`);
-            }
-            const derivedQuery = this.buildTopicPathQuery(row.generalTopic, row.subtopic, row.charge);
-            if (!row.searchQuery && !derivedQuery) {
-                validationErrors.push(`Row ${entry.rowNumber}: provide searchQuery or topic/subtopic/charge so a query can be derived.`);
             }
         }
         if (validationErrors.length > 0) {
@@ -226,6 +227,7 @@ let ContentSpreadsheetService = class ContentSpreadsheetService {
                 },
             });
             pinnedRowsReplaced += deleted.count;
+            const importedVideoKeys = new Set();
             for (const entry of videoRows) {
                 const row = entry.row;
                 const searchQuery = row.searchQuery ||
@@ -233,6 +235,10 @@ let ContentSpreadsheetService = class ContentSpreadsheetService {
                 const normalizedSearchQuery = this.normalizeQueryKey(searchQuery);
                 const resolvedVideoId = this.extractVideoId(row.videoId, row.videoUrl);
                 if (!normalizedSearchQuery || !resolvedVideoId) {
+                    continue;
+                }
+                const importKey = `${normalizedSearchQuery}::${resolvedVideoId}`;
+                if (importedVideoKeys.has(importKey)) {
                     continue;
                 }
                 let hydratedVideo;
@@ -244,8 +250,21 @@ let ContentSpreadsheetService = class ContentSpreadsheetService {
                 }
                 const importedItem = this.rowToYoutubeSearchResult(row, hydratedVideo);
                 const pinOrder = Number.isFinite(row.pinOrder ?? NaN) ? Number(row.pinOrder) : 0;
-                await this.prisma.youtubeVideoMetadata.create({
-                    data: {
+                await this.prisma.youtubeVideoMetadata.upsert({
+                    where: {
+                        query_videoId: {
+                            query: normalizedSearchQuery,
+                            videoId: resolvedVideoId,
+                        },
+                    },
+                    update: {
+                        sourceKey,
+                        item: importedItem,
+                        startTimestamp: row.startTimestamp,
+                        keepOnRefresh: true,
+                        pinOrder,
+                    },
+                    create: {
                         sourceKey,
                         query: normalizedSearchQuery,
                         videoId: resolvedVideoId,
@@ -255,6 +274,7 @@ let ContentSpreadsheetService = class ContentSpreadsheetService {
                         pinOrder,
                     },
                 });
+                importedVideoKeys.add(importKey);
                 pinnedRowsImported += 1;
                 metadataHydrated += 1;
             }
@@ -421,6 +441,26 @@ let ContentSpreadsheetService = class ContentSpreadsheetService {
     buildGroupKey(topicValue, subtopicValue, chargeValue) {
         const normalize = (value) => (value ?? '').trim().toLowerCase();
         return [normalize(topicValue), normalize(subtopicValue), normalize(chargeValue)].join('||');
+    }
+    hasTopicContext(row) {
+        return Boolean(row.generalTopic || row.subtopic || row.charge);
+    }
+    hasAnyVideoData(row) {
+        return Boolean(row.videoId ||
+            row.videoTitle ||
+            row.videoDescription ||
+            row.channelTitle ||
+            row.channelId ||
+            row.publishedAt ||
+            row.thumbnailUrl ||
+            row.videoUrl ||
+            row.duration ||
+            row.durationSeconds !== null ||
+            row.isShort !== null ||
+            row.startTimestamp ||
+            row.keepOnRefresh !== null ||
+            row.pinOrder !== null ||
+            row.youtubeItemJson);
     }
     normalizeQueryKey(query) {
         return query

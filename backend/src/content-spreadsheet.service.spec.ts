@@ -27,6 +27,7 @@ describe('ContentSpreadsheetService', () => {
       youtubeVideoMetadata: {
         deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
         create: jest.fn(),
+        upsert: jest.fn(),
       },
     };
 
@@ -77,5 +78,33 @@ describe('ContentSpreadsheetService', () => {
     await expect(service.importCsv(csv)).rejects.toThrow(
       'provide either videoId or videoUrl when importing YouTube video data',
     );
+  });
+
+  it('deduplicates repeated video rows within the same topic group during import', async () => {
+    const csv = [
+      'generalTopic,subtopic,charge,searchQuery,videoId,videoUrl',
+      'Book of Mormon,Anachronisms,Steel,,abc123,https://www.youtube.com/watch?v=abc123',
+      'Book of Mormon,Anachronisms,Steel,,abc123,https://www.youtube.com/watch?v=abc123',
+    ].join('\n');
+
+    jest.spyOn(service as never, 'fetchVideoMetadataById' as never).mockResolvedValue({
+      videoId: 'abc123',
+      title: 'Example title',
+      description: 'Example description',
+      channelTitle: 'Example channel',
+      channelId: 'channel-1',
+      publishedAt: '2024-01-01T00:00:00.000Z',
+      thumbnailUrl: null,
+      videoUrl: 'https://www.youtube.com/watch?v=abc123',
+      duration: '1:23',
+      durationSeconds: 83,
+      isShort: false,
+    });
+
+    const result = await service.importCsv(csv);
+
+    expect(result.pinnedRowsImported).toBe(1);
+    expect(result.metadataHydrated).toBe(1);
+    expect(prismaService.youtubeVideoMetadata.upsert).toHaveBeenCalledTimes(1);
   });
 });

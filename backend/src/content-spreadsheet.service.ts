@@ -334,6 +334,8 @@ export class ContentSpreadsheetService {
 
       pinnedRowsReplaced += deleted.count;
 
+      const importedVideoKeys = new Set<string>();
+
       for (const entry of videoRows) {
         const row = entry.row;
         const searchQuery =
@@ -344,6 +346,11 @@ export class ContentSpreadsheetService {
         const resolvedVideoId = this.extractVideoId(row.videoId, row.videoUrl);
 
         if (!normalizedSearchQuery || !resolvedVideoId) {
+          continue;
+        }
+
+        const importKey = `${normalizedSearchQuery}::${resolvedVideoId}`;
+        if (importedVideoKeys.has(importKey)) {
           continue;
         }
 
@@ -360,8 +367,21 @@ export class ContentSpreadsheetService {
         const importedItem = this.rowToYoutubeSearchResult(row, hydratedVideo);
         const pinOrder = Number.isFinite(row.pinOrder ?? NaN) ? Number(row.pinOrder) : 0;
 
-        await this.prisma.youtubeVideoMetadata.create({
-          data: {
+        await this.prisma.youtubeVideoMetadata.upsert({
+          where: {
+            query_videoId: {
+              query: normalizedSearchQuery,
+              videoId: resolvedVideoId,
+            },
+          },
+          update: {
+            sourceKey,
+            item: importedItem,
+            startTimestamp: row.startTimestamp,
+            keepOnRefresh: true,
+            pinOrder,
+          },
+          create: {
             sourceKey,
             query: normalizedSearchQuery,
             videoId: resolvedVideoId,
@@ -372,6 +392,7 @@ export class ContentSpreadsheetService {
           },
         });
 
+        importedVideoKeys.add(importKey);
         pinnedRowsImported += 1;
         metadataHydrated += 1;
       }

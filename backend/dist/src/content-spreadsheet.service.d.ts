@@ -29,6 +29,8 @@ export declare class ContentSpreadsheetService {
     private escapeCsvValue;
     private buildTopicPathQuery;
     private buildGroupKey;
+    private hasTopicContext;
+    private hasAnyVideoData;
     private normalizeQueryKey;
     private decodeHtmlEntities;
     private extractVideoId;
