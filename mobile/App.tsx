@@ -5,6 +5,7 @@ import { createAsyncStoragePersister } from '@tanstack/query-async-storage-persi
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { StatusBar } from 'expo-status-bar';
 
 import { IndexItemsScreen } from './src/screens/IndexItemsScreen';
@@ -30,59 +31,61 @@ const asyncStoragePersister = createAsyncStoragePersister({
 
 export default function App() {
   return (
-    <PersistQueryClientProvider
-      client={queryClient}
-      persistOptions={{
-        persister: asyncStoragePersister,
-        maxAge: 24 * 60 * 60 * 1000,
-      }}
-    >
-      <NavigationContainer>
-        <Stack.Navigator
-          initialRouteName="Search"
-          screenOptions={{
-            headerShown: true,
-            headerStyle: {
-              backgroundColor: '#f9fafb',
-            },
-            headerTintColor: '#1f2937',
-            headerTitleStyle: {
-              fontWeight: '600',
-            },
-          }}
-        >
-          <Stack.Screen
-            name="IndexItems"
-            component={IndexItemsScreen}
-            options={{
-              title: 'Topics',
-              headerSearchBarOptions: undefined,
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <PersistQueryClientProvider
+        client={queryClient}
+        persistOptions={{
+          persister: asyncStoragePersister,
+          maxAge: 24 * 60 * 60 * 1000,
+        }}
+      >
+        <NavigationContainer>
+          <Stack.Navigator
+            initialRouteName="Search"
+            screenOptions={{
+              headerShown: true,
+              headerStyle: {
+                backgroundColor: '#f9fafb',
+              },
+              headerTintColor: '#1f2937',
+              headerTitleStyle: {
+                fontWeight: '600',
+              },
             }}
-          />
-          <Stack.Screen
-            name="IndexItemDetail"
-            component={IndexItemDetailScreen}
-            options={{
-              title: 'Topic Details',
-            }}
-          />
-          <Stack.Screen
-            name="Search"
-            component={SearchScreen}
-            options={{
-              headerShown: false,
-            }}
-          />
-          <Stack.Screen
-            name="YoutubeAdmin"
-            component={YoutubeAdminScreen}
-            options={{
-              title: 'Admin',
-            }}
-          />
-        </Stack.Navigator>
-        <StatusBar style="dark" />
-      </NavigationContainer>
-    </PersistQueryClientProvider>
+          >
+            <Stack.Screen
+              name="IndexItems"
+              component={IndexItemsScreen}
+              options={{
+                title: 'Topics',
+                headerSearchBarOptions: undefined,
+              }}
+            />
+            <Stack.Screen
+              name="IndexItemDetail"
+              component={IndexItemDetailScreen}
+              options={{
+                title: 'Topic Details',
+              }}
+            />
+            <Stack.Screen
+              name="Search"
+              component={SearchScreen}
+              options={{
+                headerShown: false,
+              }}
+            />
+            <Stack.Screen
+              name="YoutubeAdmin"
+              component={YoutubeAdminScreen}
+              options={{
+                title: 'Admin',
+              }}
+            />
+          </Stack.Navigator>
+          <StatusBar style="dark" />
+        </NavigationContainer>
+      </PersistQueryClientProvider>
+    </GestureHandlerRootView>
   );
 }
