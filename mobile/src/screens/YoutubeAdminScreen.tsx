@@ -17,6 +17,7 @@ import {
   View,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { isAxiosError } from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as DocumentPicker from 'expo-document-picker';
 import * as Sharing from 'expo-sharing';
@@ -58,6 +59,8 @@ type SpreadsheetStatus = {
   kind: 'info' | 'success' | 'error';
   message: string;
 };
+
+const TOP_MATCH_PRECACHE_TIMEOUT_MS = 180000;
 
 type HelpSectionKey =
   | 'overview'
@@ -386,6 +389,9 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
           maxResults: 5,
           maxComments: 120,
         },
+        {
+          timeout: TOP_MATCH_PRECACHE_TIMEOUT_MS,
+        },
       );
 
       const { generatedCount, hitCount, topMatchVideoIds } = response.data;
@@ -393,7 +399,13 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
         `Done. Cached ${generatedCount} new summaries, reused ${hitCount} cached summaries (${topMatchVideoIds.length} top matches).`,
       );
     } catch (error) {
-      setTopMatchPrecacheStatus(`Failed: ${formatApiError(error)}`);
+      if (isAxiosError(error) && error.code === 'ECONNABORTED') {
+        setTopMatchPrecacheStatus(
+          'Failed: Request timed out while generating summaries. Try again or reduce the amount of uncached videos first.',
+        );
+      } else {
+        setTopMatchPrecacheStatus(`Failed: ${formatApiError(error)}`);
+      }
     } finally {
       setIsTopMatchPrecacheBusy(false);
     }
