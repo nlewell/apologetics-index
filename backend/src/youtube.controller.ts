@@ -100,6 +100,39 @@ class PrecacheTopMatchCommentsDto {
   maxComments?: number;
 }
 
+class YoutubeOfficialAnswerQueryDto {
+  @IsString()
+  @IsNotEmpty()
+  videoId!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  topicQuery!: string;
+
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === '1' || value === true)
+  @IsBoolean()
+  generateIfMissing?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === '1' || value === true)
+  @IsBoolean()
+  forceRefresh?: boolean;
+}
+
+class PrecacheTopMatchOfficialAnswersDto {
+  @IsString()
+  @IsNotEmpty()
+  query!: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(25)
+  maxResults?: number;
+}
+
 class YoutubeChannelCommentsSummaryQueryDto {
   @IsString()
   @IsNotEmpty()
@@ -196,6 +229,24 @@ export class YoutubeController {
       query: body.query,
       maxResults: body.maxResults ?? 5,
       maxComments: body.maxComments ?? 120,
+    });
+  }
+
+  @Get('official-answer')
+  officialAnswer(@Query() query: YoutubeOfficialAnswerQueryDto) {
+    return this.youtubeService.getOfficialChurchAnswer({
+      videoId: query.videoId,
+      topicQuery: query.topicQuery,
+      generateIfMissing: query.generateIfMissing ?? true,
+      forceRefresh: query.forceRefresh ?? false,
+    });
+  }
+
+  @Post('official-answer/precache-top-matches')
+  precacheTopMatchOfficialAnswers(@Body() body: PrecacheTopMatchOfficialAnswersDto) {
+    return this.youtubeService.precacheTopMatchOfficialAnswers({
+      query: body.query,
+      maxResults: body.maxResults ?? 5,
     });
   }
 

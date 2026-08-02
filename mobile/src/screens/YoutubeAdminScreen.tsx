@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   Alert,
   ActivityIndicator,
@@ -37,6 +38,7 @@ import {
   ContentSpreadsheetImportResponse,
   IndexItem,
   YoutubePrecacheTopMatchCommentsResponse,
+  YoutubePrecacheTopMatchOfficialAnswersResponse,
   YoutubeSearchItem,
   YoutubeWhitelistEntry,
 } from '../types';
@@ -129,6 +131,7 @@ const HELP_CONTENT: Record<
 };
 
 export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
+  const queryClient = useQueryClient();
   const [activeQuery, setActiveQuery] = useState('');
   const [editingItem, setEditingItem] = useState<YoutubeSearchItem | null>(null);
   const [editingStartTimestamp, setEditingStartTimestamp] = useState('');
@@ -358,7 +361,13 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
         message: `Import complete. Updated ${response.data.indexItemsCreated + response.data.indexItemsUpdated} topic rows and imported ${response.data.pinnedRowsImported} pinned videos.`,
       });
 
-      await Promise.all([refetchIndex(), refetch()]);
+      await Promise.all([
+        refetchIndex(),
+        refetch(),
+        queryClient.invalidateQueries({ queryKey: ['indexItemsTopicsWithSubtopics'] }),
+        queryClient.invalidateQueries({ queryKey: ['indexItemsTopics'] }),
+        queryClient.invalidateQueries({ queryKey: ['contentVersion'] }),
+      ]);
     } catch (error) {
       const errorMessage = formatApiError(error);
       setSpreadsheetStatus({ kind: 'error', message: errorMessage });
@@ -368,7 +377,7 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
     }
   };
 
-  const precacheTopMatchCommentSummaries = async () => {
+  const precacheTopMatchInsights = async () => {
     const normalizedQuery = activeQuery.trim();
 
     if (!normalizedQuery) {
@@ -377,21 +386,35 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
     }
 
     setIsTopMatchPrecacheBusy(true);
-    setTopMatchPrecacheStatus('Caching top match comment summaries...');
+    setTopMatchPrecacheStatus('Caching top match insights...');
 
     try {
-      const response = await apiClient.post<YoutubePrecacheTopMatchCommentsResponse>(
-        '/youtube/comments-analysis/precache-top-matches',
-        {
-          query: normalizedQuery,
-          maxResults: 5,
-          maxComments: 120,
-        },
-      );
+      const [commentsResponse, officialAnswersResponse] = await Promise.all([
+        apiClient.post<YoutubePrecacheTopMatchCommentsResponse>(
+          '/youtube/comments-analysis/precache-top-matches',
+          {
+            query: normalizedQuery,
+            maxResults: 5,
+            maxComments: 120,
+          },
+        ),
+        apiClient.post<YoutubePrecacheTopMatchOfficialAnswersResponse>(
+          '/youtube/official-answer/precache-top-matches',
+          {
+            query: normalizedQuery,
+            maxResults: 5,
+          },
+        ),
+      ]);
 
-      const { generatedCount, hitCount, topMatchVideoIds } = response.data;
+      const { generatedCount, hitCount, topMatchVideoIds } = commentsResponse.data;
+      const {
+        generatedCount: officialGeneratedCount,
+        hitCount: officialHitCount,
+        matchedCount,
+      } = officialAnswersResponse.data;
       setTopMatchPrecacheStatus(
-        `Done. Cached ${generatedCount} new summaries, reused ${hitCount} cached summaries (${topMatchVideoIds.length} top matches).`,
+        `Done. Comment summaries: ${generatedCount} new, ${hitCount} reused. Official answers: ${officialGeneratedCount} new, ${officialHitCount} reused, ${matchedCount} matched (${topMatchVideoIds.length} top matches).`,
       );
     } catch (error) {
       setTopMatchPrecacheStatus(`Failed: ${formatApiError(error)}`);
@@ -1054,18 +1077,18 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
 
             {showTopMatchPrecachePanel ? (
               <View style={styles.topMatchPrecachePanel}>
-                <Text style={styles.topMatchPrecacheTitle}>Top Match Comment Summaries</Text>
+                <Text style={styles.topMatchPrecacheTitle}>Top Match Insights</Text>
                 <Text style={styles.topMatchPrecacheText}>
-                  Pre-cache comment summaries for top matches so users see them without extra AI calls.
+                  Pre-cache both comment summaries and official church answer links for top matches.
                 </Text>
                 <TouchableOpacity
                   style={styles.secondaryActionButton}
-                  onPress={precacheTopMatchCommentSummaries}
+                  onPress={precacheTopMatchInsights}
                   activeOpacity={0.8}
                   disabled={isTopMatchPrecacheBusy || !activeQuery.trim()}
                 >
                   <Text style={styles.secondaryActionButtonText}>
-                    {isTopMatchPrecacheBusy ? 'Caching...' : 'Cache Top Match Summaries'}
+                    {isTopMatchPrecacheBusy ? 'Caching...' : 'Cache Top Match Insights'}
                   </Text>
                 </TouchableOpacity>
                 {topMatchPrecacheStatus ? (

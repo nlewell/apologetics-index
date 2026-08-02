@@ -110,3 +110,19 @@ model YoutubeCommentAnalysisCache {
   @@index([videoId])
   @@index([refreshedAt])
 }
+
+model YoutubeOfficialAnswerCache {
+  id           Int      @id @default(autoincrement())
+  cacheKey     String   @unique
+  videoId      String
+  topicQuery   String
+  answer       Json
+  matchedUrl   String?
+  refreshedAt  DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([videoId])
+  @@index([topicQuery])
+  @@index([refreshedAt])
+}

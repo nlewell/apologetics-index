@@ -3,6 +3,7 @@ import { useQueries, useQueryClient } from '@tanstack/react-query';
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   Clipboard,
   FlatList,
   Image,
@@ -19,7 +20,7 @@ import {
   View,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useIsFocused } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   useIndexItemsTopicsWithSubtopics,
@@ -27,7 +28,11 @@ import {
   useYoutubeSearch,
 } from '../hooks';
 import { RootStackParamList } from '../types/navigation';
-import { YoutubeCommentsAnalysisResponse, YoutubeSearchItem } from '../types';
+import {
+  YoutubeCommentsAnalysisResponse,
+  YoutubeOfficialAnswerResponse,
+  YoutubeSearchItem,
+} from '../types';
 import { formatApiError } from '../lib/formatApiError';
 import { SEARCH_CARD_EDIT_ENABLED_KEY } from '../constants/admin';
 import { apiClient } from '../lib/apiClient';
@@ -41,6 +46,8 @@ type VideoSection = {
 
 export const SearchScreen: React.FC<SearchScreenProps> = ({ navigation }) => {
   const queryClient = useQueryClient();
+  const isFocused = useIsFocused();
+  const appStateRef = React.useRef(AppState.currentState);
   const isYoutubeDebugEnabled =
     process.env.EXPO_PUBLIC_YOUTUBE_DEBUG === 'true';
   const adminAccessCode =
@@ -128,6 +135,50 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ navigation }) => {
 
   const hasYoutubeQuery = youtubeQuery.length > 0;
 
+  const refreshMainPageData = useCallback(async () => {
+    setShowTopicErrorDetails(false);
+    setShowVideoErrorDetails(false);
+
+    await queryClient.invalidateQueries({
+      queryKey: ['indexItemsTopicsWithSubtopics'],
+    });
+    await queryClient.invalidateQueries({ queryKey: ['indexItemsTopics'] });
+    await queryClient.invalidateQueries({ queryKey: ['contentVersion'] });
+
+    await refetchTopics();
+
+    if (hasYoutubeQuery) {
+      await refetchVideos();
+    }
+  }, [hasYoutubeQuery, queryClient, refetchTopics, refetchVideos]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void refreshMainPageData();
+    }, [refreshMainPageData]),
+  );
+
+  React.useEffect(() => {
+    if (!isFocused) {
+      return;
+    }
+
+    const subscription = AppState.addEventListener('change', (nextAppState) => {
+      const wasBackgrounded =
+        /inactive|background/.test(appStateRef.current) && nextAppState === 'active';
+
+      appStateRef.current = nextAppState;
+
+      if (wasBackgrounded) {
+        void refreshMainPageData();
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [isFocused, refreshMainPageData]);
+
   const topMatchItems = useMemo(() => {
     const items = searchData?.items ?? [];
     const pinnedItems = items
@@ -174,6 +225,40 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ navigation }) => {
 
     return map;
   }, [topMatchItems, topMatchSummaryQueries]);
+
+  const topMatchOfficialAnswerQueries = useQueries({
+    queries: topMatchItems.map((item) => ({
+      queryKey: ['youtubeOfficialAnswer', item.videoId, youtubeQuery],
+      queryFn: async (): Promise<YoutubeOfficialAnswerResponse> => {
+        const response = await apiClient.get<YoutubeOfficialAnswerResponse>(
+          '/youtube/official-answer',
+          {
+            params: {
+              videoId: item.videoId,
+              topicQuery: youtubeQuery,
+              generateIfMissing: false,
+            },
+          },
+        );
+
+        return response.data;
+      },
+      enabled: hasYoutubeQuery,
+      staleTime: 5 * 60 * 1000,
+      gcTime: 15 * 60 * 1000,
+      retry: 0,
+    })),
+  });
+
+  const topMatchOfficialAnswerByVideoId = useMemo(() => {
+    const map = new Map<string, (typeof topMatchOfficialAnswerQueries)[number]>();
+
+    topMatchItems.forEach((item, index) => {
+      map.set(item.videoId, topMatchOfficialAnswerQueries[index]);
+    });
+
+    return map;
+  }, [topMatchItems, topMatchOfficialAnswerQueries]);
 
   const groupedSections = useMemo<VideoSection[]>(() => {
     const items = searchData?.items ?? [];
@@ -279,24 +364,38 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ navigation }) => {
     runHierarchySearch(charge);
   };
 
-  const ensureTopMatchSummaryCached = async (videoId: string) => {
-    await apiClient.get<YoutubeCommentsAnalysisResponse>('/youtube/comments-analysis', {
-      params: {
-        videoId,
-        maxComments: 120,
-        generateIfMissing: true,
-      },
-    });
+  const ensureTopMatchInsightsCached = async (videoId: string) => {
+    await Promise.all([
+      apiClient.get<YoutubeCommentsAnalysisResponse>('/youtube/comments-analysis', {
+        params: {
+          videoId,
+          maxComments: 120,
+          generateIfMissing: true,
+        },
+      }),
+      apiClient.get<YoutubeOfficialAnswerResponse>('/youtube/official-answer', {
+        params: {
+          videoId,
+          topicQuery: youtubeQuery,
+          generateIfMissing: true,
+        },
+      }),
+    ]);
 
-    await queryClient.invalidateQueries({
-      queryKey: ['youtubeCommentsAnalysis', videoId],
-    });
+    await Promise.all([
+      queryClient.invalidateQueries({
+        queryKey: ['youtubeCommentsAnalysis', videoId],
+      }),
+      queryClient.invalidateQueries({
+        queryKey: ['youtubeOfficialAnswer', videoId],
+      }),
+    ]);
   };
 
   const handleVideoPress = async (item: YoutubeSearchItem, isTopMatch = false) => {
     if (isTopMatch) {
-      void ensureTopMatchSummaryCached(item.videoId).catch((error) => {
-        console.warn('Failed to pre-cache top match comments analysis:', error);
+      void ensureTopMatchInsightsCached(item.videoId).catch((error) => {
+        console.warn('Failed to pre-cache top match insights:', error);
       });
     }
 
@@ -315,6 +414,17 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ navigation }) => {
     await Share.share({
       message: url,
       title: 'Watch this YouTube video',
+    });
+  };
+
+  const handleOpenExternalUrl = async (url: string) => {
+    await Linking.openURL(url);
+  };
+
+  const handleShareExternalUrl = async (title: string, url: string) => {
+    await Share.share({
+      message: url,
+      title,
     });
   };
 
@@ -563,6 +673,107 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ navigation }) => {
                   {summary.cachedAt ? (
                     <Text style={styles.topMatchSummaryCachedAtText}>
                       Cached {new Date(summary.cachedAt).toLocaleString()}
+                    </Text>
+                  ) : null}
+                </View>
+              );
+            })()}
+
+            {(() => {
+              const answerQuery = topMatchOfficialAnswerByVideoId.get(item.videoId);
+
+              if (!answerQuery || answerQuery.isLoading) {
+                return (
+                  <Text style={styles.topMatchSummaryHint}>Checking cached official church answer...</Text>
+                );
+              }
+
+              if (answerQuery.isError) {
+                return (
+                  <Text style={styles.topMatchSummaryHint}>Official church answer unavailable right now.</Text>
+                );
+              }
+
+              const answer = answerQuery.data;
+
+              if (!answer || answer.cacheStatus === 'miss') {
+                return (
+                  <Text style={styles.topMatchSummaryHint}>
+                    No cached official church answer yet. Opening this top match will try to find and cache one.
+                  </Text>
+                );
+              }
+
+              const cacheStatusLabel =
+                answer.cacheStatus === 'hit'
+                  ? 'Pre-cached'
+                  : answer.cacheStatus === 'generated'
+                    ? 'Generated now'
+                    : 'Missing';
+
+              return (
+                <View
+                  style={[
+                    styles.topMatchSummaryCard,
+                    answer.matchFound
+                      ? styles.topMatchOfficialAnswerCard
+                      : styles.topMatchOfficialAnswerCardNoMatch,
+                  ]}
+                >
+                  <View style={styles.topMatchSummaryHeaderRow}>
+                    <Text style={styles.topMatchSummaryTitle}>Official Church Answer</Text>
+                    <View
+                      style={[
+                        styles.topMatchSummaryStatusBadge,
+                        answer.cacheStatus === 'hit'
+                          ? styles.topMatchSummaryStatusBadgeHit
+                          : styles.topMatchSummaryStatusBadgeGenerated,
+                      ]}
+                    >
+                      <Text style={styles.topMatchSummaryStatusText}>{cacheStatusLabel}</Text>
+                    </View>
+                  </View>
+                  {answer.matchFound && answer.answerTitle && answer.answerUrl ? (
+                    <>
+                      <Text style={styles.topMatchOfficialAnswerTitle}>{answer.answerTitle}</Text>
+                      {answer.answerSnippet ? (
+                        <Text style={styles.topMatchSummaryText}>{answer.answerSnippet}</Text>
+                      ) : null}
+                      <Text style={styles.topMatchOfficialAnswerMeta}>
+                        {answer.answerSource ?? 'Official Church Source'}
+                        {` • Confidence ${answer.confidenceScore.toFixed(2)}`}
+                      </Text>
+                      {answer.rationale ? (
+                        <Text style={styles.topMatchSummaryCachedAtText}>{answer.rationale}</Text>
+                      ) : null}
+                      <TouchableOpacity
+                        style={styles.topMatchOfficialAnswerLinkButton}
+                        onPress={() => handleOpenExternalUrl(answer.answerUrl!)}
+                        activeOpacity={0.8}
+                      >
+                        <Text style={styles.topMatchOfficialAnswerLinkText}>Open Official Answer</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.topMatchOfficialAnswerSecondaryButton}
+                        onPress={() => handleShareExternalUrl(answer.answerTitle!, answer.answerUrl!)}
+                        activeOpacity={0.8}
+                      >
+                        <Text style={styles.topMatchOfficialAnswerSecondaryText}>Share Link</Text>
+                      </TouchableOpacity>
+                    </>
+                  ) : (
+                    <>
+                      <Text style={styles.topMatchSummaryText}>
+                        No official church answer link was confidently matched for this topic.
+                      </Text>
+                      {answer.rationale ? (
+                        <Text style={styles.topMatchSummaryCachedAtText}>{answer.rationale}</Text>
+                      ) : null}
+                    </>
+                  )}
+                  {answer.cachedAt ? (
+                    <Text style={styles.topMatchSummaryCachedAtText}>
+                      Cached {new Date(answer.cachedAt).toLocaleString()}
                     </Text>
                   ) : null}
                 </View>
@@ -1419,6 +1630,52 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     fontSize: 12,
     color: '#6b7280',
+  },
+  topMatchOfficialAnswerCard: {
+    backgroundColor: '#eff6ff',
+    borderColor: '#93c5fd',
+  },
+  topMatchOfficialAnswerCardNoMatch: {
+    backgroundColor: '#f8fafc',
+    borderColor: '#cbd5e1',
+  },
+  topMatchOfficialAnswerTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0f172a',
+    marginBottom: 4,
+  },
+  topMatchOfficialAnswerMeta: {
+    marginTop: 5,
+    fontSize: 12,
+    color: '#075985',
+    fontWeight: '600',
+  },
+  topMatchOfficialAnswerLinkButton: {
+    marginTop: 8,
+    alignSelf: 'flex-start',
+    backgroundColor: '#dbeafe',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  topMatchOfficialAnswerLinkText: {
+    color: '#1d4ed8',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  topMatchOfficialAnswerSecondaryButton: {
+    marginTop: 6,
+    alignSelf: 'flex-start',
+    backgroundColor: '#e2e8f0',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  topMatchOfficialAnswerSecondaryText: {
+    color: '#334155',
+    fontSize: 12,
+    fontWeight: '800',
   },
   sectionHeader: {
     paddingHorizontal: 14,

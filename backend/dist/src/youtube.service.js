@@ -20,6 +20,7 @@ let YoutubeService = class YoutubeService {
     prismaService;
     memoryChannelIdCache = new Map();
     commentsAnalysisCache = new Map();
+    officialAnswerCache = new Map();
     shortsMaxSeconds;
     cacheTtlMs = 7 * 24 * 60 * 60 * 1000;
     constructor(configService, prismaService) {
@@ -135,6 +136,111 @@ let YoutubeService = class YoutubeService {
             topMatchVideoIds: topMatchItems.map((video) => video.videoId),
             generatedCount,
             hitCount,
+        };
+    }
+    async getOfficialChurchAnswer(input) {
+        const videoId = input.videoId.trim();
+        const topicQuery = input.topicQuery.trim();
+        if (!videoId) {
+            throw new common_1.BadRequestException('videoId is required.');
+        }
+        if (!topicQuery) {
+            throw new common_1.BadRequestException('topicQuery is required.');
+        }
+        const generateIfMissing = input.generateIfMissing ?? true;
+        const cacheKey = this.buildOfficialChurchAnswerCacheKey(videoId, topicQuery);
+        if (!input.forceRefresh) {
+            const cached = await this.getCachedOfficialChurchAnswer(cacheKey);
+            if (cached) {
+                return cached;
+            }
+            const persisted = await this.getPersistedOfficialChurchAnswer(cacheKey);
+            if (persisted) {
+                this.setCachedOfficialChurchAnswer(cacheKey, persisted);
+                return persisted;
+            }
+        }
+        if (!generateIfMissing) {
+            return {
+                videoId,
+                topicQuery,
+                cacheStatus: 'miss',
+                cachedAt: null,
+                matchFound: false,
+                answerTitle: null,
+                answerUrl: null,
+                answerSource: null,
+                answerSnippet: null,
+                rationale: 'Official church answer link is not cached yet. Open this top match to generate and cache one.',
+                confidenceScore: 0,
+            };
+        }
+        const candidates = await this.fetchOfficialChurchSearchCandidates(topicQuery);
+        const selection = await this.selectOfficialChurchAnswerWithAi(topicQuery, candidates);
+        const matchedCandidate = selection.matchFound && selection.selectedUrl
+            ? candidates.find((candidate) => this.normalizeComparableUrl(candidate.url) ===
+                this.normalizeComparableUrl(selection.selectedUrl ?? '')) ?? null
+            : null;
+        const response = {
+            videoId,
+            topicQuery,
+            cacheStatus: 'generated',
+            cachedAt: new Date().toISOString(),
+            matchFound: Boolean(matchedCandidate),
+            answerTitle: matchedCandidate?.title ?? null,
+            answerUrl: matchedCandidate?.url ?? null,
+            answerSource: matchedCandidate?.source ?? null,
+            answerSnippet: matchedCandidate?.snippet ?? null,
+            rationale: selection.rationale?.trim() ||
+                (matchedCandidate
+                    ? 'Selected as the closest official church answer for this topic.'
+                    : 'No official church answer link was confidently matched for this topic.'),
+            confidenceScore: this.clamp01(Number(selection.confidenceScore ?? 0)),
+        };
+        this.setCachedOfficialChurchAnswer(cacheKey, response);
+        await this.setPersistedOfficialChurchAnswer(cacheKey, videoId, topicQuery, response);
+        return response;
+    }
+    async precacheTopMatchOfficialAnswers(input) {
+        const query = input.query.trim();
+        if (!query) {
+            throw new common_1.BadRequestException('query is required.');
+        }
+        const maxResults = Number.isFinite(input.maxResults)
+            ? Math.min(25, Math.max(1, Math.trunc(input.maxResults ?? 5)))
+            : 5;
+        const searchResult = await this.search(query, maxResults, false, false);
+        const pinnedItems = searchResult.items
+            .filter((video) => video.keepOnRefresh)
+            .sort((a, b) => a.pinOrder - b.pinOrder || a.title.localeCompare(b.title));
+        const topMatchItems = pinnedItems.length > 0 ? pinnedItems : searchResult.items.slice(0, 1);
+        let generatedCount = 0;
+        let hitCount = 0;
+        let matchedCount = 0;
+        for (const video of topMatchItems) {
+            const answer = await this.getOfficialChurchAnswer({
+                videoId: video.videoId,
+                topicQuery: query,
+                generateIfMissing: true,
+                forceRefresh: false,
+            });
+            if (answer.cacheStatus === 'generated') {
+                generatedCount += 1;
+            }
+            else if (answer.cacheStatus === 'hit') {
+                hitCount += 1;
+            }
+            if (answer.matchFound) {
+                matchedCount += 1;
+            }
+        }
+        return {
+            query,
+            maxResults,
+            topMatchVideoIds: topMatchItems.map((video) => video.videoId),
+            generatedCount,
+            hitCount,
+            matchedCount,
         };
     }
     async getChannelCommentsSummary(input) {
@@ -758,6 +864,322 @@ let YoutubeService = class YoutubeService {
             disagreementScore: Number(row.disagreementScore ?? 1),
             arguments: Array.isArray(row.arguments) ? row.arguments : [],
         };
+    }
+    buildOfficialChurchAnswerCacheKey(videoId, topicQuery) {
+        return `${videoId}|${this.normalizeText(topicQuery)}`;
+    }
+    async getCachedOfficialChurchAnswer(cacheKey) {
+        const entry = this.officialAnswerCache.get(cacheKey);
+        if (!entry) {
+            return null;
+        }
+        if (Date.now() > entry.expiresAt) {
+            this.officialAnswerCache.delete(cacheKey);
+            return null;
+        }
+        return {
+            ...entry.response,
+            cacheStatus: 'hit',
+        };
+    }
+    setCachedOfficialChurchAnswer(cacheKey, response) {
+        this.officialAnswerCache.set(cacheKey, {
+            expiresAt: Date.now() + this.commentsAnalysisCacheTtlMs,
+            response,
+        });
+    }
+    async getPersistedOfficialChurchAnswer(cacheKey) {
+        const row = await this.prismaService.youtubeOfficialAnswerCache.findUnique({
+            where: { cacheKey },
+        });
+        if (!row) {
+            return null;
+        }
+        const parsed = this.coerceOfficialChurchAnswerResponse(row.answer);
+        if (!parsed) {
+            return null;
+        }
+        return {
+            ...parsed,
+            cacheStatus: 'hit',
+            cachedAt: row.refreshedAt.toISOString(),
+        };
+    }
+    async setPersistedOfficialChurchAnswer(cacheKey, videoId, topicQuery, response) {
+        const refreshedAt = new Date();
+        const toStore = {
+            ...response,
+            cacheStatus: 'generated',
+            cachedAt: refreshedAt.toISOString(),
+        };
+        await this.prismaService.youtubeOfficialAnswerCache.upsert({
+            where: { cacheKey },
+            update: {
+                videoId,
+                topicQuery,
+                answer: toStore,
+                matchedUrl: toStore.answerUrl,
+                refreshedAt,
+            },
+            create: {
+                cacheKey,
+                videoId,
+                topicQuery,
+                answer: toStore,
+                matchedUrl: toStore.answerUrl,
+                refreshedAt,
+            },
+        });
+    }
+    coerceOfficialChurchAnswerResponse(value) {
+        if (!value || typeof value !== 'object') {
+            return null;
+        }
+        const row = value;
+        if (!row.videoId || !row.topicQuery) {
+            return null;
+        }
+        return {
+            videoId: row.videoId,
+            topicQuery: row.topicQuery,
+            cacheStatus: row.cacheStatus ?? 'generated',
+            cachedAt: row.cachedAt ?? null,
+            matchFound: Boolean(row.matchFound),
+            answerTitle: row.answerTitle ?? null,
+            answerUrl: row.answerUrl ?? null,
+            answerSource: row.answerSource ?? null,
+            answerSnippet: row.answerSnippet ?? null,
+            rationale: row.rationale ?? null,
+            confidenceScore: Number(row.confidenceScore ?? 0),
+        };
+    }
+    async fetchOfficialChurchSearchCandidates(topicQuery) {
+        const searchUrl = new URL('https://www.churchofjesuschrist.org/search');
+        searchUrl.searchParams.set('lang', 'eng');
+        searchUrl.searchParams.set('query', topicQuery);
+        searchUrl.searchParams.set('type', 'web');
+        searchUrl.searchParams.set('facet', 'all');
+        searchUrl.searchParams.set('page', '1');
+        const response = await fetch(searchUrl);
+        if (!response.ok) {
+            const text = await response.text();
+            throw new common_1.BadGatewayException(`Church search request failed (${response.status}): ${text}`);
+        }
+        const html = await response.text();
+        const anchorRegex = /<a\b[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
+        const rawCandidates = [];
+        const seen = new Set();
+        let match;
+        while ((match = anchorRegex.exec(html)) !== null) {
+            const href = match[1] ?? '';
+            const innerHtml = match[2] ?? '';
+            const normalizedUrl = this.resolveOfficialChurchResultUrl(href);
+            if (!normalizedUrl || seen.has(normalizedUrl) || !this.isAllowedOfficialChurchResult(normalizedUrl)) {
+                continue;
+            }
+            const title = this.normalizeWhitespace(this.decodeHtmlEntities(this.stripHtml(innerHtml)));
+            if (!title || title.length < 4 || this.isIgnoredOfficialChurchTitle(title)) {
+                continue;
+            }
+            seen.add(normalizedUrl);
+            rawCandidates.push({
+                title,
+                url: normalizedUrl,
+                source: this.getOfficialChurchSourceLabel(normalizedUrl),
+                snippet: '',
+            });
+            if (rawCandidates.length >= 8) {
+                break;
+            }
+        }
+        if (!rawCandidates.length) {
+            return [];
+        }
+        const enriched = await Promise.all(rawCandidates.map(async (candidate) => {
+            const snippet = await this.fetchOfficialChurchCandidateSnippet(candidate.url);
+            return {
+                ...candidate,
+                snippet: snippet || candidate.title,
+            };
+        }));
+        return enriched;
+    }
+    async fetchOfficialChurchCandidateSnippet(url) {
+        try {
+            const response = await fetch(url);
+            if (!response.ok) {
+                return '';
+            }
+            const html = await response.text();
+            const metaDescriptionMatch = /<meta[^>]+(?:name|property)="(?:description|og:description)"[^>]+content="([^"]+)"/i.exec(html) ??
+                /<meta[^>]+content="([^"]+)"[^>]+(?:name|property)="(?:description|og:description)"/i.exec(html);
+            if (metaDescriptionMatch?.[1]) {
+                return this.normalizeWhitespace(this.decodeHtmlEntities(metaDescriptionMatch[1]));
+            }
+            const titleMatch = /<title>([\s\S]*?)<\/title>/i.exec(html);
+            return titleMatch?.[1]
+                ? this.normalizeWhitespace(this.decodeHtmlEntities(this.stripHtml(titleMatch[1])))
+                : '';
+        }
+        catch {
+            return '';
+        }
+    }
+    async selectOfficialChurchAnswerWithAi(topicQuery, candidates) {
+        if (!candidates.length) {
+            return {
+                matchFound: false,
+                rationale: 'No official church results were available to evaluate.',
+                confidenceScore: 0,
+            };
+        }
+        const openAiKey = this.configService.get('OPENAI_API_KEY');
+        if (!openAiKey) {
+            throw new common_1.ServiceUnavailableException('OPENAI_API_KEY is not configured on the server');
+        }
+        const model = this.configService.get('OPENAI_ANALYSIS_MODEL') ?? 'gpt-4.1-mini';
+        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${openAiKey}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                model,
+                temperature: 0.1,
+                response_format: { type: 'json_object' },
+                messages: [
+                    {
+                        role: 'system',
+                        content: 'You choose official Church of Jesus Christ of Latter-day Saints links for a topic. Return strict JSON only. Choose one candidate only if it directly answers or clearly explains the topic from an official church source. If the results are only tangentially related, return matchFound false.',
+                    },
+                    {
+                        role: 'user',
+                        content: [
+                            `Topic query: ${topicQuery}`,
+                            'Return JSON with keys: matchFound (boolean), selectedUrl (string), rationale (string), confidenceScore (number 0..1).',
+                            'selectedUrl must be exactly one of the candidate URLs when matchFound is true. Otherwise return an empty string.',
+                            `Candidates JSON: ${JSON.stringify(candidates)}`,
+                        ].join('\n\n'),
+                    },
+                ],
+            }),
+        });
+        if (!response.ok) {
+            const text = await response.text();
+            throw new common_1.BadGatewayException(`AI official answer request failed (${response.status}): ${text}`);
+        }
+        const payload = (await response.json());
+        const content = payload.choices?.[0]?.message?.content;
+        if (!content) {
+            throw new common_1.BadGatewayException('AI official answer response was empty.');
+        }
+        try {
+            return JSON.parse(content);
+        }
+        catch {
+            throw new common_1.BadGatewayException('AI official answer returned invalid JSON.');
+        }
+    }
+    resolveOfficialChurchResultUrl(rawUrl) {
+        const trimmed = rawUrl.trim();
+        if (!trimmed) {
+            return null;
+        }
+        try {
+            const url = trimmed.startsWith('http')
+                ? new URL(trimmed)
+                : new URL(trimmed, 'https://www.churchofjesuschrist.org');
+            return url.toString();
+        }
+        catch {
+            return null;
+        }
+    }
+    isAllowedOfficialChurchResult(urlValue) {
+        try {
+            const url = new URL(urlValue);
+            const host = url.hostname.toLowerCase();
+            const path = url.pathname.toLowerCase();
+            const allowedHosts = new Set([
+                'www.churchofjesuschrist.org',
+                'churchofjesuschrist.org',
+                'newsroom.churchofjesuschrist.org',
+                'www.comeuntochrist.org',
+                'comeuntochrist.org',
+            ]);
+            if (!allowedHosts.has(host)) {
+                return false;
+            }
+            if (path === '/' ||
+                path.startsWith('/search') ||
+                path.startsWith('/tools/') ||
+                path.startsWith('/countries') ||
+                path.startsWith('/directory') ||
+                path.startsWith('/maps') ||
+                path.startsWith('/church/employment')) {
+                return false;
+            }
+            return true;
+        }
+        catch {
+            return false;
+        }
+    }
+    isIgnoredOfficialChurchTitle(title) {
+        const normalized = this.normalizeText(title);
+        return [
+            'the church of jesus christ of latter day saints',
+            'filter results',
+            'feedback',
+            'all results',
+            'image results',
+            'video results',
+            'music results',
+            'pdf results',
+            'skip to main content',
+        ].includes(normalized);
+    }
+    getOfficialChurchSourceLabel(urlValue) {
+        try {
+            const host = new URL(urlValue).hostname.toLowerCase();
+            if (host.includes('newsroom.')) {
+                return 'Newsroom';
+            }
+            if (host.includes('comeuntochrist')) {
+                return 'Come unto Christ';
+            }
+            return 'ChurchofJesusChrist.org';
+        }
+        catch {
+            return 'Official Church Source';
+        }
+    }
+    normalizeComparableUrl(urlValue) {
+        try {
+            const url = new URL(urlValue);
+            url.hash = '';
+            url.searchParams.sort();
+            return url.toString().replace(/\/+$/, '');
+        }
+        catch {
+            return urlValue.trim().replace(/\/+$/, '');
+        }
+    }
+    stripHtml(value) {
+        return value.replace(/<[^>]+>/g, ' ');
+    }
+    decodeHtmlEntities(value) {
+        return value
+            .replace(/&amp;/g, '&')
+            .replace(/&quot;/g, '"')
+            .replace(/&#39;/g, "'")
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&nbsp;/g, ' ');
+    }
+    normalizeWhitespace(value) {
+        return value.replace(/\s+/g, ' ').trim();
     }
     async fetchChannelVideoIdsForTopic(channelId, topicQuery, maxVideos, apiKey) {
         const url = new URL('https://www.googleapis.com/youtube/v3/search');

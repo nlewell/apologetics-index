@@ -82,6 +82,27 @@ export type YoutubePrecacheTopMatchCommentsResponse = {
     generatedCount: number;
     hitCount: number;
 };
+export type YoutubeOfficialAnswerResponse = {
+    videoId: string;
+    topicQuery: string;
+    cacheStatus: 'hit' | 'generated' | 'miss';
+    cachedAt: string | null;
+    matchFound: boolean;
+    answerTitle: string | null;
+    answerUrl: string | null;
+    answerSource: string | null;
+    answerSnippet: string | null;
+    rationale: string | null;
+    confidenceScore: number;
+};
+export type YoutubePrecacheTopMatchOfficialAnswersResponse = {
+    query: string;
+    maxResults: number;
+    topMatchVideoIds: string[];
+    generatedCount: number;
+    hitCount: number;
+    matchedCount: number;
+};
 export type YoutubeChannelCommentsSummaryResponse = {
     channelId: string;
     topicQuery: string;
@@ -103,6 +124,7 @@ export declare class YoutubeService {
     private readonly prismaService;
     private readonly memoryChannelIdCache;
     private readonly commentsAnalysisCache;
+    private readonly officialAnswerCache;
     private readonly shortsMaxSeconds;
     private readonly cacheTtlMs;
     constructor(configService: ConfigService, prismaService: PrismaService);
@@ -118,6 +140,16 @@ export declare class YoutubeService {
         maxResults?: number;
         maxComments?: number;
     }): Promise<YoutubePrecacheTopMatchCommentsResponse>;
+    getOfficialChurchAnswer(input: {
+        videoId: string;
+        topicQuery: string;
+        generateIfMissing?: boolean;
+        forceRefresh?: boolean;
+    }): Promise<YoutubeOfficialAnswerResponse>;
+    precacheTopMatchOfficialAnswers(input: {
+        query: string;
+        maxResults?: number;
+    }): Promise<YoutubePrecacheTopMatchOfficialAnswersResponse>;
     getChannelCommentsSummary(input: {
         channelId: string;
         topicQuery: string;
@@ -142,6 +174,23 @@ export declare class YoutubeService {
     private getPersistedCommentsAnalysis;
     private setPersistedCommentsAnalysis;
     private coerceCommentsAnalysisResponse;
+    private buildOfficialChurchAnswerCacheKey;
+    private getCachedOfficialChurchAnswer;
+    private setCachedOfficialChurchAnswer;
+    private getPersistedOfficialChurchAnswer;
+    private setPersistedOfficialChurchAnswer;
+    private coerceOfficialChurchAnswerResponse;
+    private fetchOfficialChurchSearchCandidates;
+    private fetchOfficialChurchCandidateSnippet;
+    private selectOfficialChurchAnswerWithAi;
+    private resolveOfficialChurchResultUrl;
+    private isAllowedOfficialChurchResult;
+    private isIgnoredOfficialChurchTitle;
+    private getOfficialChurchSourceLabel;
+    private normalizeComparableUrl;
+    private stripHtml;
+    private decodeHtmlEntities;
+    private normalizeWhitespace;
     private fetchChannelVideoIdsForTopic;
     private computeConfidenceMetrics;
     private restoreDisplayLabel;

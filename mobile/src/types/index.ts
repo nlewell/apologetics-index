@@ -159,6 +159,29 @@ export interface YoutubePrecacheTopMatchCommentsResponse {
   hitCount: number;
 }
 
+export interface YoutubeOfficialAnswerResponse {
+  videoId: string;
+  topicQuery: string;
+  cacheStatus: 'hit' | 'generated' | 'miss';
+  cachedAt: string | null;
+  matchFound: boolean;
+  answerTitle: string | null;
+  answerUrl: string | null;
+  answerSource: string | null;
+  answerSnippet: string | null;
+  rationale: string | null;
+  confidenceScore: number;
+}
+
+export interface YoutubePrecacheTopMatchOfficialAnswersResponse {
+  query: string;
+  maxResults: number;
+  topMatchVideoIds: string[];
+  generatedCount: number;
+  hitCount: number;
+  matchedCount: number;
+}
+
 export interface YoutubeChannelCommentsSummaryResponse {
   channelId: string;
   topicQuery: string;

@@ -21,6 +21,16 @@ declare class PrecacheTopMatchCommentsDto {
     maxResults?: number;
     maxComments?: number;
 }
+declare class YoutubeOfficialAnswerQueryDto {
+    videoId: string;
+    topicQuery: string;
+    generateIfMissing?: boolean;
+    forceRefresh?: boolean;
+}
+declare class PrecacheTopMatchOfficialAnswersDto {
+    query: string;
+    maxResults?: number;
+}
 declare class YoutubeChannelCommentsSummaryQueryDto {
     channelId: string;
     topicQuery: string;
@@ -50,6 +60,8 @@ export declare class YoutubeController {
     search(query: YoutubeSearchQueryDto): Promise<import("./youtube.service").YoutubeSearchResponse>;
     commentsAnalysis(query: YoutubeCommentsAnalysisQueryDto): Promise<import("./youtube.service").YoutubeCommentsAnalysisResponse>;
     precacheTopMatchComments(body: PrecacheTopMatchCommentsDto): Promise<import("./youtube.service").YoutubePrecacheTopMatchCommentsResponse>;
+    officialAnswer(query: YoutubeOfficialAnswerQueryDto): Promise<import("./youtube.service").YoutubeOfficialAnswerResponse>;
+    precacheTopMatchOfficialAnswers(body: PrecacheTopMatchOfficialAnswersDto): Promise<import("./youtube.service").YoutubePrecacheTopMatchOfficialAnswersResponse>;
     channelCommentsSummary(query: YoutubeChannelCommentsSummaryQueryDto): Promise<import("./youtube.service").YoutubeChannelCommentsSummaryResponse>;
     saveSearchOverride(body: YoutubeSearchOverrideDto): Promise<YoutubeSearchResult>;
     listWhitelistEntries(): Promise<import("./youtube.service").YoutubeWhitelistEntry[]>;

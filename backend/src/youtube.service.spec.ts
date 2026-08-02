@@ -4,10 +4,26 @@ import { PrismaService } from './prisma.service';
 
 describe('YoutubeService', () => {
   let service: YoutubeService;
-  let prismaService: Pick<
-    PrismaService,
-    'youtubeSearchCache' | 'youtubeVideoMetadata' | 'youtubeVideoIndex'
-  >;
+  let prismaService: {
+    youtubeSearchCache: {
+      findFirst: jest.Mock;
+      upsert: jest.Mock;
+    };
+    youtubeVideoMetadata: {
+      findMany: jest.Mock;
+      upsert: jest.Mock;
+    };
+    youtubeVideoIndex: {
+      findUnique: jest.Mock;
+      findFirst: jest.Mock;
+      findMany: jest.Mock;
+      upsert: jest.Mock;
+    };
+    youtubeOfficialAnswerCache: {
+      findUnique: jest.Mock;
+      upsert: jest.Mock;
+    };
+  };
   let configService: Pick<ConfigService, 'get'>;
 
   beforeEach(() => {
@@ -15,6 +31,10 @@ describe('YoutubeService', () => {
       get: jest.fn((key: string) => {
         if (key === 'YOUTUBE_API_KEY') {
           return 'test-api-key';
+        }
+
+        if (key === 'OPENAI_API_KEY') {
+          return 'test-openai-key';
         }
 
         return undefined;
@@ -31,14 +51,16 @@ describe('YoutubeService', () => {
         upsert: jest.fn(),
       },
       youtubeVideoIndex: {
+        findUnique: jest.fn().mockResolvedValue(null),
         findFirst: jest.fn(),
         findMany: jest.fn().mockResolvedValue([]),
         upsert: jest.fn(),
       },
-    } as unknown as Pick<
-      PrismaService,
-      'youtubeSearchCache' | 'youtubeVideoMetadata' | 'youtubeVideoIndex'
-    >;
+      youtubeOfficialAnswerCache: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        upsert: jest.fn(),
+      },
+    };
 
     service = new YoutubeService(
       configService as ConfigService,
@@ -81,7 +103,9 @@ describe('YoutubeService', () => {
 
     const response = await service.search('god', 5, false);
 
-    expect(response.items).toEqual(cachedItems);
+    expect(response.items).toEqual([
+      expect.objectContaining(cachedItems[0]),
+    ]);
     expect(searchWithinChannelSpy).not.toHaveBeenCalled();
   });
 
@@ -117,7 +141,62 @@ describe('YoutubeService', () => {
 
     const response = await service.search('   GoD   ', 5, false);
 
-    expect(response.items).toEqual(cachedItems);
+    expect(response.items).toEqual([
+      expect.objectContaining(cachedItems[0]),
+    ]);
     expect(searchWithinChannelSpy).not.toHaveBeenCalled();
+  });
+
+  it('returns a cache miss for official answers when generation is disabled', async () => {
+    const fetchCandidatesSpy = jest.spyOn(
+      service as never,
+      'fetchOfficialChurchSearchCandidates' as never,
+    );
+
+    const response = await service.getOfficialChurchAnswer({
+      videoId: 'video-1',
+      topicQuery: 'book of mormon',
+      generateIfMissing: false,
+    });
+
+    expect(response.cacheStatus).toBe('miss');
+    expect(response.matchFound).toBe(false);
+    expect(fetchCandidatesSpy).not.toHaveBeenCalled();
+  });
+
+  it('generates and persists an official answer when a candidate matches', async () => {
+    jest.spyOn(
+      service as never,
+      'fetchOfficialChurchSearchCandidates' as never,
+    ).mockResolvedValue([
+      {
+        title: 'The Book of Mormon',
+        url: 'https://www.churchofjesuschrist.org/study/scriptures/bofm?lang=eng',
+        source: 'ChurchofJesusChrist.org',
+        snippet: 'Reference guide to the Book of Mormon.',
+      },
+    ]);
+    jest.spyOn(
+      service as never,
+      'selectOfficialChurchAnswerWithAi' as never,
+    ).mockResolvedValue({
+      matchFound: true,
+      selectedUrl: 'https://www.churchofjesuschrist.org/study/scriptures/bofm?lang=eng',
+      rationale: 'This directly explains the topic from an official source.',
+      confidenceScore: 0.91,
+    });
+
+    const response = await service.getOfficialChurchAnswer({
+      videoId: 'video-1',
+      topicQuery: 'book of mormon',
+    });
+
+    expect(response.cacheStatus).toBe('generated');
+    expect(response.matchFound).toBe(true);
+    expect(response.answerTitle).toBe('The Book of Mormon');
+    expect(response.answerUrl).toBe(
+      'https://www.churchofjesuschrist.org/study/scriptures/bofm?lang=eng',
+    );
+    expect(prismaService.youtubeOfficialAnswerCache.upsert).toHaveBeenCalled();
   });
 });

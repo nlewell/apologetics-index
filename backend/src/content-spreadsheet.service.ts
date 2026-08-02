@@ -206,14 +206,15 @@ export class ContentSpreadsheetService {
   }
 
   async importCsv(csv: string): Promise<ImportResponse> {
-    const trimmed = csv.trim();
+    const trimmed = csv.replace(/^\uFEFF/, '').trim();
 
     if (!trimmed) {
       throw new BadRequestException('CSV content is empty.');
     }
 
     const rows = parse(trimmed, {
-      columns: true,
+      columns: (headers: string[]) =>
+        headers.map((header) => header.trim().replace(/^\uFEFF/, '')),
       skip_empty_lines: true,
       trim: true,
       relax_column_count: true,
@@ -221,6 +222,16 @@ export class ContentSpreadsheetService {
 
     if (!rows.length) {
       throw new BadRequestException('CSV content does not contain any rows.');
+    }
+
+    const detectedHeaders = Object.keys(rows[0] ?? {});
+    const expectedAnchorHeaders = ['generalTopic', 'subtopic', 'charge', 'searchQuery', 'videoId', 'videoUrl'];
+    const hasRecognizedHeaders = expectedAnchorHeaders.some((header) => detectedHeaders.includes(header));
+
+    if (!hasRecognizedHeaders) {
+      throw new BadRequestException(
+        `CSV headers do not match the expected template. Detected headers: ${detectedHeaders.join(', ') || '(none)'}. Export a CSV from the admin tool first, then edit and re-import that file.`,
+      );
     }
 
     const normalizedRows = rows.map((row, index) => ({

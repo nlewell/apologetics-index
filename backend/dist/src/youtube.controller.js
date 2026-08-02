@@ -121,6 +121,51 @@ __decorate([
     (0, class_validator_1.Max)(250),
     __metadata("design:type", Number)
 ], PrecacheTopMatchCommentsDto.prototype, "maxComments", void 0);
+class YoutubeOfficialAnswerQueryDto {
+    videoId;
+    topicQuery;
+    generateIfMissing;
+    forceRefresh;
+}
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", String)
+], YoutubeOfficialAnswerQueryDto.prototype, "videoId", void 0);
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", String)
+], YoutubeOfficialAnswerQueryDto.prototype, "topicQuery", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_transformer_1.Transform)(({ value }) => value === 'true' || value === '1' || value === true),
+    (0, class_validator_1.IsBoolean)(),
+    __metadata("design:type", Boolean)
+], YoutubeOfficialAnswerQueryDto.prototype, "generateIfMissing", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_transformer_1.Transform)(({ value }) => value === 'true' || value === '1' || value === true),
+    (0, class_validator_1.IsBoolean)(),
+    __metadata("design:type", Boolean)
+], YoutubeOfficialAnswerQueryDto.prototype, "forceRefresh", void 0);
+class PrecacheTopMatchOfficialAnswersDto {
+    query;
+    maxResults;
+}
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", String)
+], PrecacheTopMatchOfficialAnswersDto.prototype, "query", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_transformer_1.Type)(() => Number),
+    (0, class_validator_1.IsInt)(),
+    (0, class_validator_1.Min)(1),
+    (0, class_validator_1.Max)(25),
+    __metadata("design:type", Number)
+], PrecacheTopMatchOfficialAnswersDto.prototype, "maxResults", void 0);
 class YoutubeChannelCommentsSummaryQueryDto {
     channelId;
     topicQuery;
@@ -232,6 +277,20 @@ let YoutubeController = class YoutubeController {
             maxComments: body.maxComments ?? 120,
         });
     }
+    officialAnswer(query) {
+        return this.youtubeService.getOfficialChurchAnswer({
+            videoId: query.videoId,
+            topicQuery: query.topicQuery,
+            generateIfMissing: query.generateIfMissing ?? true,
+            forceRefresh: query.forceRefresh ?? false,
+        });
+    }
+    precacheTopMatchOfficialAnswers(body) {
+        return this.youtubeService.precacheTopMatchOfficialAnswers({
+            query: body.query,
+            maxResults: body.maxResults ?? 5,
+        });
+    }
     channelCommentsSummary(query) {
         return this.youtubeService.getChannelCommentsSummary({
             channelId: query.channelId,
@@ -291,6 +350,20 @@ __decorate([
     __metadata("design:paramtypes", [PrecacheTopMatchCommentsDto]),
     __metadata("design:returntype", void 0)
 ], YoutubeController.prototype, "precacheTopMatchComments", null);
+__decorate([
+    (0, common_1.Get)('official-answer'),
+    __param(0, (0, common_1.Query)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [YoutubeOfficialAnswerQueryDto]),
+    __metadata("design:returntype", void 0)
+], YoutubeController.prototype, "officialAnswer", null);
+__decorate([
+    (0, common_1.Post)('official-answer/precache-top-matches'),
+    __param(0, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [PrecacheTopMatchOfficialAnswersDto]),
+    __metadata("design:returntype", void 0)
+], YoutubeController.prototype, "precacheTopMatchOfficialAnswers", null);
 __decorate([
     (0, common_1.Get)('channel-comments-summary'),
     __param(0, (0, common_1.Query)()),
