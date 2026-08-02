@@ -103,6 +103,23 @@ export type YoutubePrecacheTopMatchOfficialAnswersResponse = {
     hitCount: number;
     matchedCount: number;
 };
+export type YoutubeQueryInsightResponse = {
+    topicQuery: string;
+    cacheStatus: 'hit' | 'generated' | 'miss';
+    cachedAt: string | null;
+    answerText: string | null;
+    bestSourceTitle: string | null;
+    bestSourceUrl: string | null;
+    bestSourceSnippet: string | null;
+    bestSourceRationale: string | null;
+    confidenceScore: number;
+};
+export type YoutubePrecacheQueryInsightResponse = {
+    query: string;
+    cacheStatus: 'hit' | 'generated' | 'miss';
+    hasAnswer: boolean;
+    hasBestSource: boolean;
+};
 export type YoutubeChannelCommentsSummaryResponse = {
     channelId: string;
     topicQuery: string;
@@ -125,6 +142,7 @@ export declare class YoutubeService {
     private readonly memoryChannelIdCache;
     private readonly commentsAnalysisCache;
     private readonly officialAnswerCache;
+    private readonly queryInsightCache;
     private readonly shortsMaxSeconds;
     private readonly cacheTtlMs;
     constructor(configService: ConfigService, prismaService: PrismaService);
@@ -150,6 +168,14 @@ export declare class YoutubeService {
         query: string;
         maxResults?: number;
     }): Promise<YoutubePrecacheTopMatchOfficialAnswersResponse>;
+    getQueryInsight(input: {
+        topicQuery: string;
+        generateIfMissing?: boolean;
+        forceRefresh?: boolean;
+    }): Promise<YoutubeQueryInsightResponse>;
+    precacheQueryInsight(input: {
+        query: string;
+    }): Promise<YoutubePrecacheQueryInsightResponse>;
     getChannelCommentsSummary(input: {
         channelId: string;
         topicQuery: string;
@@ -180,6 +206,16 @@ export declare class YoutubeService {
     private getPersistedOfficialChurchAnswer;
     private setPersistedOfficialChurchAnswer;
     private coerceOfficialChurchAnswerResponse;
+    private buildQueryInsightCacheKey;
+    private getCachedQueryInsight;
+    private setCachedQueryInsight;
+    private getPersistedQueryInsight;
+    private setPersistedQueryInsight;
+    private coerceQueryInsightResponse;
+    private fetchWebSearchCandidates;
+    private analyzeQueryInsightWithAi;
+    private resolveWebSearchResultUrl;
+    private getSourceLabel;
     private fetchOfficialChurchSearchCandidates;
     private fetchOfficialChurchCandidateSnippet;
     private selectOfficialChurchAnswerWithAi;

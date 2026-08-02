@@ -166,6 +166,36 @@ __decorate([
     (0, class_validator_1.Max)(25),
     __metadata("design:type", Number)
 ], PrecacheTopMatchOfficialAnswersDto.prototype, "maxResults", void 0);
+class YoutubeQueryInsightQueryDto {
+    topicQuery;
+    generateIfMissing;
+    forceRefresh;
+}
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", String)
+], YoutubeQueryInsightQueryDto.prototype, "topicQuery", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_transformer_1.Transform)(({ value }) => value === 'true' || value === '1' || value === true),
+    (0, class_validator_1.IsBoolean)(),
+    __metadata("design:type", Boolean)
+], YoutubeQueryInsightQueryDto.prototype, "generateIfMissing", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_transformer_1.Transform)(({ value }) => value === 'true' || value === '1' || value === true),
+    (0, class_validator_1.IsBoolean)(),
+    __metadata("design:type", Boolean)
+], YoutubeQueryInsightQueryDto.prototype, "forceRefresh", void 0);
+class PrecacheQueryInsightDto {
+    query;
+}
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", String)
+], PrecacheQueryInsightDto.prototype, "query", void 0);
 class YoutubeChannelCommentsSummaryQueryDto {
     channelId;
     topicQuery;
@@ -291,6 +321,18 @@ let YoutubeController = class YoutubeController {
             maxResults: body.maxResults ?? 5,
         });
     }
+    queryAnswer(query) {
+        return this.youtubeService.getQueryInsight({
+            topicQuery: query.topicQuery,
+            generateIfMissing: query.generateIfMissing ?? true,
+            forceRefresh: query.forceRefresh ?? false,
+        });
+    }
+    precacheQueryAnswer(body) {
+        return this.youtubeService.precacheQueryInsight({
+            query: body.query,
+        });
+    }
     channelCommentsSummary(query) {
         return this.youtubeService.getChannelCommentsSummary({
             channelId: query.channelId,
@@ -364,6 +406,20 @@ __decorate([
     __metadata("design:paramtypes", [PrecacheTopMatchOfficialAnswersDto]),
     __metadata("design:returntype", void 0)
 ], YoutubeController.prototype, "precacheTopMatchOfficialAnswers", null);
+__decorate([
+    (0, common_1.Get)('query-answer'),
+    __param(0, (0, common_1.Query)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [YoutubeQueryInsightQueryDto]),
+    __metadata("design:returntype", void 0)
+], YoutubeController.prototype, "queryAnswer", null);
+__decorate([
+    (0, common_1.Post)('query-answer/precache'),
+    __param(0, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [PrecacheQueryInsightDto]),
+    __metadata("design:returntype", void 0)
+], YoutubeController.prototype, "precacheQueryAnswer", null);
 __decorate([
     (0, common_1.Get)('channel-comments-summary'),
     __param(0, (0, common_1.Query)()),

@@ -133,6 +133,28 @@ class PrecacheTopMatchOfficialAnswersDto {
   maxResults?: number;
 }
 
+class YoutubeQueryInsightQueryDto {
+  @IsString()
+  @IsNotEmpty()
+  topicQuery!: string;
+
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === '1' || value === true)
+  @IsBoolean()
+  generateIfMissing?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === '1' || value === true)
+  @IsBoolean()
+  forceRefresh?: boolean;
+}
+
+class PrecacheQueryInsightDto {
+  @IsString()
+  @IsNotEmpty()
+  query!: string;
+}
+
 class YoutubeChannelCommentsSummaryQueryDto {
   @IsString()
   @IsNotEmpty()
@@ -247,6 +269,22 @@ export class YoutubeController {
     return this.youtubeService.precacheTopMatchOfficialAnswers({
       query: body.query,
       maxResults: body.maxResults ?? 5,
+    });
+  }
+
+  @Get('query-answer')
+  queryAnswer(@Query() query: YoutubeQueryInsightQueryDto) {
+    return this.youtubeService.getQueryInsight({
+      topicQuery: query.topicQuery,
+      generateIfMissing: query.generateIfMissing ?? true,
+      forceRefresh: query.forceRefresh ?? false,
+    });
+  }
+
+  @Post('query-answer/precache')
+  precacheQueryAnswer(@Body() body: PrecacheQueryInsightDto) {
+    return this.youtubeService.precacheQueryInsight({
+      query: body.query,
     });
   }
 

@@ -21,6 +21,7 @@ let YoutubeService = class YoutubeService {
     memoryChannelIdCache = new Map();
     commentsAnalysisCache = new Map();
     officialAnswerCache = new Map();
+    queryInsightCache = new Map();
     shortsMaxSeconds;
     cacheTtlMs = 7 * 24 * 60 * 60 * 1000;
     constructor(configService, prismaService) {
@@ -241,6 +242,76 @@ let YoutubeService = class YoutubeService {
             generatedCount,
             hitCount,
             matchedCount,
+        };
+    }
+    async getQueryInsight(input) {
+        const topicQuery = input.topicQuery.trim();
+        if (!topicQuery) {
+            throw new common_1.BadRequestException('topicQuery is required.');
+        }
+        const generateIfMissing = input.generateIfMissing ?? true;
+        const cacheKey = this.buildQueryInsightCacheKey(topicQuery);
+        if (!input.forceRefresh) {
+            const cached = await this.getCachedQueryInsight(cacheKey);
+            if (cached) {
+                return cached;
+            }
+            const persisted = await this.getPersistedQueryInsight(cacheKey);
+            if (persisted) {
+                this.setCachedQueryInsight(cacheKey, persisted);
+                return persisted;
+            }
+        }
+        if (!generateIfMissing) {
+            return {
+                topicQuery,
+                cacheStatus: 'miss',
+                cachedAt: null,
+                answerText: null,
+                bestSourceTitle: null,
+                bestSourceUrl: null,
+                bestSourceSnippet: null,
+                bestSourceRationale: null,
+                confidenceScore: 0,
+            };
+        }
+        const candidates = await this.fetchWebSearchCandidates(topicQuery);
+        const aiPayload = await this.analyzeQueryInsightWithAi(topicQuery, candidates);
+        const matchedCandidate = aiPayload.bestUrl
+            ? candidates.find((candidate) => this.normalizeComparableUrl(candidate.url) ===
+                this.normalizeComparableUrl(aiPayload.bestUrl ?? '')) ?? null
+            : null;
+        const response = {
+            topicQuery,
+            cacheStatus: 'generated',
+            cachedAt: new Date().toISOString(),
+            answerText: aiPayload.answerText?.trim() || null,
+            bestSourceTitle: matchedCandidate?.title ?? null,
+            bestSourceUrl: matchedCandidate?.url ?? null,
+            bestSourceSnippet: matchedCandidate?.snippet ?? null,
+            bestSourceRationale: aiPayload.bestSourceRationale?.trim() ||
+                (matchedCandidate ? 'Selected as the strongest general source for this query.' : null),
+            confidenceScore: this.clamp01(Number(aiPayload.confidenceScore ?? 0)),
+        };
+        this.setCachedQueryInsight(cacheKey, response);
+        await this.setPersistedQueryInsight(cacheKey, topicQuery, response);
+        return response;
+    }
+    async precacheQueryInsight(input) {
+        const query = input.query.trim();
+        if (!query) {
+            throw new common_1.BadRequestException('query is required.');
+        }
+        const response = await this.getQueryInsight({
+            topicQuery: query,
+            generateIfMissing: true,
+            forceRefresh: false,
+        });
+        return {
+            query,
+            cacheStatus: response.cacheStatus,
+            hasAnswer: Boolean(response.answerText),
+            hasBestSource: Boolean(response.bestSourceUrl),
         };
     }
     async getChannelCommentsSummary(input) {
@@ -952,6 +1023,211 @@ let YoutubeService = class YoutubeService {
             rationale: row.rationale ?? null,
             confidenceScore: Number(row.confidenceScore ?? 0),
         };
+    }
+    buildQueryInsightCacheKey(topicQuery) {
+        return this.normalizeText(topicQuery);
+    }
+    async getCachedQueryInsight(cacheKey) {
+        const entry = this.queryInsightCache.get(cacheKey);
+        if (!entry) {
+            return null;
+        }
+        if (Date.now() > entry.expiresAt) {
+            this.queryInsightCache.delete(cacheKey);
+            return null;
+        }
+        return {
+            ...entry.response,
+            cacheStatus: 'hit',
+        };
+    }
+    setCachedQueryInsight(cacheKey, response) {
+        this.queryInsightCache.set(cacheKey, {
+            expiresAt: Date.now() + this.commentsAnalysisCacheTtlMs,
+            response,
+        });
+    }
+    async getPersistedQueryInsight(cacheKey) {
+        const row = await this.prismaService.youtubeQueryInsightCache.findUnique({
+            where: { cacheKey },
+        });
+        if (!row) {
+            return null;
+        }
+        const parsed = this.coerceQueryInsightResponse(row.insight);
+        if (!parsed) {
+            return null;
+        }
+        return {
+            ...parsed,
+            cacheStatus: 'hit',
+            cachedAt: row.refreshedAt.toISOString(),
+        };
+    }
+    async setPersistedQueryInsight(cacheKey, topicQuery, response) {
+        const refreshedAt = new Date();
+        const toStore = {
+            ...response,
+            cacheStatus: 'generated',
+            cachedAt: refreshedAt.toISOString(),
+        };
+        await this.prismaService.youtubeQueryInsightCache.upsert({
+            where: { cacheKey },
+            update: {
+                topicQuery,
+                insight: toStore,
+                bestUrl: toStore.bestSourceUrl,
+                refreshedAt,
+            },
+            create: {
+                cacheKey,
+                topicQuery,
+                insight: toStore,
+                bestUrl: toStore.bestSourceUrl,
+                refreshedAt,
+            },
+        });
+    }
+    coerceQueryInsightResponse(value) {
+        if (!value || typeof value !== 'object') {
+            return null;
+        }
+        const row = value;
+        if (!row.topicQuery) {
+            return null;
+        }
+        return {
+            topicQuery: row.topicQuery,
+            cacheStatus: row.cacheStatus ?? 'generated',
+            cachedAt: row.cachedAt ?? null,
+            answerText: row.answerText ?? null,
+            bestSourceTitle: row.bestSourceTitle ?? null,
+            bestSourceUrl: row.bestSourceUrl ?? null,
+            bestSourceSnippet: row.bestSourceSnippet ?? null,
+            bestSourceRationale: row.bestSourceRationale ?? null,
+            confidenceScore: Number(row.confidenceScore ?? 0),
+        };
+    }
+    async fetchWebSearchCandidates(topicQuery) {
+        const searchUrl = new URL('https://duckduckgo.com/html/');
+        searchUrl.searchParams.set('q', topicQuery);
+        const response = await fetch(searchUrl, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0',
+            },
+        });
+        if (!response.ok) {
+            const text = await response.text();
+            throw new common_1.BadGatewayException(`Web search request failed (${response.status}): ${text}`);
+        }
+        const html = await response.text();
+        const resultRegex = /<a[^>]+class="[^"]*result__a[^"]*"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?(?:<a[^>]+class="[^"]*result__snippet[^"]*"[^>]*>|<div[^>]+class="[^"]*result__snippet[^"]*"[^>]*>)([\s\S]*?)(?:<\/a>|<\/div>)/gi;
+        const candidates = [];
+        const seen = new Set();
+        let match;
+        while ((match = resultRegex.exec(html)) !== null) {
+            const rawUrl = match[1] ?? '';
+            const title = this.normalizeWhitespace(this.decodeHtmlEntities(this.stripHtml(match[2] ?? '')));
+            const snippet = this.normalizeWhitespace(this.decodeHtmlEntities(this.stripHtml(match[3] ?? '')));
+            const url = this.resolveWebSearchResultUrl(rawUrl);
+            if (!url || seen.has(url) || !title || !snippet) {
+                continue;
+            }
+            seen.add(url);
+            candidates.push({
+                title,
+                url,
+                source: this.getSourceLabel(url),
+                snippet,
+            });
+            if (candidates.length >= 8) {
+                break;
+            }
+        }
+        return candidates;
+    }
+    async analyzeQueryInsightWithAi(topicQuery, candidates) {
+        if (!candidates.length) {
+            return {
+                answerText: null,
+                bestUrl: '',
+                bestSourceRationale: 'No search candidates were available to evaluate.',
+                confidenceScore: 0,
+            };
+        }
+        const openAiKey = this.configService.get('OPENAI_API_KEY');
+        if (!openAiKey) {
+            throw new common_1.ServiceUnavailableException('OPENAI_API_KEY is not configured on the server');
+        }
+        const model = this.configService.get('OPENAI_ANALYSIS_MODEL') ?? 'gpt-4.1-mini';
+        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${openAiKey}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                model,
+                temperature: 0.2,
+                response_format: { type: 'json_object' },
+                messages: [
+                    {
+                        role: 'system',
+                        content: 'You summarize likely answers to a topic query from provided search result snippets and choose the single best URL for further reading. Return strict JSON only. Do not invent facts beyond the provided candidates. If the candidates are weak, still provide a cautious answer and leave bestUrl empty if none is strong enough.',
+                    },
+                    {
+                        role: 'user',
+                        content: [
+                            `Topic query: ${topicQuery}`,
+                            'Return JSON with keys: answerText (string), bestUrl (string), bestSourceRationale (string), confidenceScore (number 0..1).',
+                            'bestUrl must exactly match one candidate URL when present. Use an empty string when no single source stands out.',
+                            `Candidates JSON: ${JSON.stringify(candidates)}`,
+                        ].join('\n\n'),
+                    },
+                ],
+            }),
+        });
+        if (!response.ok) {
+            const text = await response.text();
+            throw new common_1.BadGatewayException(`AI query insight request failed (${response.status}): ${text}`);
+        }
+        const payload = (await response.json());
+        const content = payload.choices?.[0]?.message?.content;
+        if (!content) {
+            throw new common_1.BadGatewayException('AI query insight response was empty.');
+        }
+        try {
+            return JSON.parse(content);
+        }
+        catch {
+            throw new common_1.BadGatewayException('AI query insight returned invalid JSON.');
+        }
+    }
+    resolveWebSearchResultUrl(rawUrl) {
+        try {
+            const normalized = rawUrl.startsWith('http')
+                ? new URL(rawUrl)
+                : new URL(rawUrl, 'https://duckduckgo.com');
+            if (normalized.hostname.includes('duckduckgo.com') && normalized.pathname.startsWith('/l/')) {
+                const redirected = normalized.searchParams.get('uddg');
+                if (redirected) {
+                    return decodeURIComponent(redirected);
+                }
+            }
+            return normalized.toString();
+        }
+        catch {
+            return null;
+        }
+    }
+    getSourceLabel(urlValue) {
+        try {
+            const host = new URL(urlValue).hostname.toLowerCase().replace(/^www\./, '');
+            return host;
+        }
+        catch {
+            return 'External source';
+        }
     }
     async fetchOfficialChurchSearchCandidates(topicQuery) {
         const searchUrl = new URL('https://www.churchofjesuschrist.org/search');

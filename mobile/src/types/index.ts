@@ -182,6 +182,25 @@ export interface YoutubePrecacheTopMatchOfficialAnswersResponse {
   matchedCount: number;
 }
 
+export interface YoutubeQueryInsightResponse {
+  topicQuery: string;
+  cacheStatus: 'hit' | 'generated' | 'miss';
+  cachedAt: string | null;
+  answerText: string | null;
+  bestSourceTitle: string | null;
+  bestSourceUrl: string | null;
+  bestSourceSnippet: string | null;
+  bestSourceRationale: string | null;
+  confidenceScore: number;
+}
+
+export interface YoutubePrecacheQueryInsightResponse {
+  query: string;
+  cacheStatus: 'hit' | 'generated' | 'miss';
+  hasAnswer: boolean;
+  hasBestSource: boolean;
+}
+
 export interface YoutubeChannelCommentsSummaryResponse {
   channelId: string;
   topicQuery: string;

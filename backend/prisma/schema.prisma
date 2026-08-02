@@ -126,3 +126,17 @@ model YoutubeOfficialAnswerCache {
   @@index([topicQuery])
   @@index([refreshedAt])
 }
+
+model YoutubeQueryInsightCache {
+  id           Int      @id @default(autoincrement())
+  cacheKey     String   @unique
+  topicQuery   String
+  insight      Json
+  bestUrl      String?
+  refreshedAt  DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([topicQuery])
+  @@index([refreshedAt])
+}

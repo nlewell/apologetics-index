@@ -23,6 +23,10 @@ describe('YoutubeService', () => {
       findUnique: jest.Mock;
       upsert: jest.Mock;
     };
+    youtubeQueryInsightCache: {
+      findUnique: jest.Mock;
+      upsert: jest.Mock;
+    };
   };
   let configService: Pick<ConfigService, 'get'>;
 
@@ -57,6 +61,10 @@ describe('YoutubeService', () => {
         upsert: jest.fn(),
       },
       youtubeOfficialAnswerCache: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        upsert: jest.fn(),
+      },
+      youtubeQueryInsightCache: {
         findUnique: jest.fn().mockResolvedValue(null),
         upsert: jest.fn(),
       },
@@ -198,5 +206,53 @@ describe('YoutubeService', () => {
       'https://www.churchofjesuschrist.org/study/scriptures/bofm?lang=eng',
     );
     expect(prismaService.youtubeOfficialAnswerCache.upsert).toHaveBeenCalled();
+  });
+
+  it('returns a cache miss for query insight when generation is disabled', async () => {
+    const fetchCandidatesSpy = jest.spyOn(
+      service as never,
+      'fetchWebSearchCandidates' as never,
+    );
+
+    const response = await service.getQueryInsight({
+      topicQuery: 'book of mormon',
+      generateIfMissing: false,
+    });
+
+    expect(response.cacheStatus).toBe('miss');
+    expect(response.answerText).toBeNull();
+    expect(fetchCandidatesSpy).not.toHaveBeenCalled();
+  });
+
+  it('generates and persists query insight with a best source', async () => {
+    jest.spyOn(
+      service as never,
+      'fetchWebSearchCandidates' as never,
+    ).mockResolvedValue([
+      {
+        title: 'Book of Mormon Evidence',
+        url: 'https://example.com/book-of-mormon-evidence',
+        source: 'example.com',
+        snippet: 'A detailed overview of evidences and responses.',
+      },
+    ]);
+    jest.spyOn(
+      service as never,
+      'analyzeQueryInsightWithAi' as never,
+    ).mockResolvedValue({
+      answerText: 'A concise answer based on the available sources.',
+      bestUrl: 'https://example.com/book-of-mormon-evidence',
+      bestSourceRationale: 'This source most directly addresses the query.',
+      confidenceScore: 0.88,
+    });
+
+    const response = await service.getQueryInsight({
+      topicQuery: 'book of mormon',
+    });
+
+    expect(response.cacheStatus).toBe('generated');
+    expect(response.answerText).toBe('A concise answer based on the available sources.');
+    expect(response.bestSourceUrl).toBe('https://example.com/book-of-mormon-evidence');
+    expect(prismaService.youtubeQueryInsightCache.upsert).toHaveBeenCalled();
   });
 });

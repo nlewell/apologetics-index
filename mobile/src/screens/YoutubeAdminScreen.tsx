@@ -39,6 +39,7 @@ import {
   IndexItem,
   YoutubePrecacheTopMatchCommentsResponse,
   YoutubePrecacheTopMatchOfficialAnswersResponse,
+  YoutubePrecacheQueryInsightResponse,
   YoutubeSearchItem,
   YoutubeWhitelistEntry,
 } from '../types';
@@ -389,7 +390,7 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
     setTopMatchPrecacheStatus('Caching top match insights...');
 
     try {
-      const [commentsResponse, officialAnswersResponse] = await Promise.all([
+      const [commentsResponse, officialAnswersResponse, queryInsightResponse] = await Promise.all([
         apiClient.post<YoutubePrecacheTopMatchCommentsResponse>(
           '/youtube/comments-analysis/precache-top-matches',
           {
@@ -405,6 +406,9 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
             maxResults: 5,
           },
         ),
+        apiClient.post<YoutubePrecacheQueryInsightResponse>('/youtube/query-answer/precache', {
+          query: normalizedQuery,
+        }),
       ]);
 
       const { generatedCount, hitCount, topMatchVideoIds } = commentsResponse.data;
@@ -413,8 +417,13 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
         hitCount: officialHitCount,
         matchedCount,
       } = officialAnswersResponse.data;
+      const {
+        cacheStatus: queryInsightCacheStatus,
+        hasAnswer,
+        hasBestSource,
+      } = queryInsightResponse.data;
       setTopMatchPrecacheStatus(
-        `Done. Comment summaries: ${generatedCount} new, ${hitCount} reused. Official answers: ${officialGeneratedCount} new, ${officialHitCount} reused, ${matchedCount} matched (${topMatchVideoIds.length} top matches).`,
+        `Done. Comment summaries: ${generatedCount} new, ${hitCount} reused. Official answers: ${officialGeneratedCount} new, ${officialHitCount} reused, ${matchedCount} matched. Query answer: ${queryInsightCacheStatus}, answer ${hasAnswer ? 'ready' : 'missing'}, best site ${hasBestSource ? 'ready' : 'missing'} (${topMatchVideoIds.length} top matches).`,
       );
     } catch (error) {
       setTopMatchPrecacheStatus(`Failed: ${formatApiError(error)}`);
