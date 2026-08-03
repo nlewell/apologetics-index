@@ -164,6 +164,8 @@ export declare class YoutubeService {
         generateIfMissing?: boolean;
         forceRefresh?: boolean;
     }): Promise<YoutubeOfficialAnswerResponse>;
+    private buildOfficialChurchTopicQueryCandidates;
+    private getCuratedOfficialChurchCandidate;
     precacheTopMatchOfficialAnswers(input: {
         query: string;
         maxResults?: number;
@@ -211,12 +213,15 @@ export declare class YoutubeService {
     private setCachedQueryInsight;
     private getPersistedQueryInsight;
     private setPersistedQueryInsight;
+    private isPrismaSchemaMismatchError;
     private coerceQueryInsightResponse;
     private fetchWebSearchCandidates;
     private analyzeQueryInsightWithAi;
     private resolveWebSearchResultUrl;
     private getSourceLabel;
     private fetchOfficialChurchSearchCandidates;
+    private fetchOfficialChurchSearchCandidatesViaWeb;
+    private fetchOfficialChurchSearchCandidatesViaBing;
     private fetchOfficialChurchCandidateSnippet;
     private selectOfficialChurchAnswerWithAi;
     private resolveOfficialChurchResultUrl;

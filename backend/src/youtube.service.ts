@@ -504,16 +504,72 @@ export class YoutubeService {
       };
     }
 
-    const candidates = await this.fetchOfficialChurchSearchCandidates(topicQuery);
-    const selection = await this.selectOfficialChurchAnswerWithAi(topicQuery, candidates);
-    const matchedCandidate =
-      selection.matchFound && selection.selectedUrl
-        ? candidates.find(
-            (candidate) =>
-              this.normalizeComparableUrl(candidate.url) ===
-              this.normalizeComparableUrl(selection.selectedUrl ?? ''),
-          ) ?? null
-        : null;
+    const topicQueryCandidates = this.buildOfficialChurchTopicQueryCandidates(topicQuery);
+    let selection: AiOfficialAnswerSelectionPayload = {
+      matchFound: false,
+      rationale: 'No official church results were available to evaluate.',
+      confidenceScore: 0,
+    };
+    let matchedCandidate: OfficialChurchSearchCandidate | null = null;
+    let hadLookupError = false;
+
+    for (const candidateQuery of topicQueryCandidates) {
+      let candidates: OfficialChurchSearchCandidate[] = [];
+      let candidateSelection: AiOfficialAnswerSelectionPayload = {
+        matchFound: false,
+        rationale: 'No official church results were available to evaluate.',
+        confidenceScore: 0,
+      };
+      let candidateMatch: OfficialChurchSearchCandidate | null = null;
+
+      try {
+        candidates = await this.fetchOfficialChurchSearchCandidates(candidateQuery);
+        candidateSelection = await this.selectOfficialChurchAnswerWithAi(
+          candidateQuery,
+          candidates,
+        );
+        candidateMatch =
+          candidateSelection.matchFound && candidateSelection.selectedUrl
+            ? candidates.find(
+                (candidate) =>
+                  this.normalizeComparableUrl(candidate.url) ===
+                  this.normalizeComparableUrl(candidateSelection.selectedUrl ?? ''),
+              ) ?? null
+            : null;
+      } catch {
+        hadLookupError = true;
+        continue;
+      }
+
+      if (candidateMatch) {
+        selection = candidateSelection;
+        matchedCandidate = candidateMatch;
+        break;
+      }
+
+      if ((candidateSelection.confidenceScore ?? 0) > (selection.confidenceScore ?? 0)) {
+        selection = candidateSelection;
+      }
+    }
+
+    if (!matchedCandidate) {
+      const curatedCandidate = await this.getCuratedOfficialChurchCandidate(topicQuery);
+      if (curatedCandidate) {
+        matchedCandidate = curatedCandidate;
+        selection = {
+          matchFound: true,
+          selectedUrl: curatedCandidate.url,
+          rationale:
+            'Matched from curated official-topic mapping when external search candidates were weak or noisy.',
+          confidenceScore: 0.9,
+        };
+      }
+    }
+
+    if (!matchedCandidate && hadLookupError && !selection.rationale?.trim()) {
+      selection.rationale =
+        'Official source lookup encountered temporary upstream errors for this query.';
+    }
 
     const response: YoutubeOfficialAnswerResponse = {
       videoId,
@@ -536,6 +592,82 @@ export class YoutubeService {
     this.setCachedOfficialChurchAnswer(cacheKey, response);
     await this.setPersistedOfficialChurchAnswer(cacheKey, videoId, topicQuery, response);
     return response;
+  }
+
+  private buildOfficialChurchTopicQueryCandidates(topicQuery: string): string[] {
+    const normalizedWhitespace = topicQuery.replace(/\s+/g, ' ').trim();
+    const normalizedKey = this.normalizeText(normalizedWhitespace);
+    const variants = new Set<string>([normalizedWhitespace]);
+
+    const explicitAliases = new Map<string, string[]>([
+      ['joseph smith first vision', ['first vision']],
+      ['the first vision', ['first vision']],
+      ['what is the great apostasy', ['great apostasy']],
+      ['priesthood authority', ['priesthood']],
+      ['priesthood keys', ['priesthood']],
+      ['priesthood authority restoration', ['priesthood restoration']],
+    ]);
+
+    const aliasMatches = explicitAliases.get(normalizedKey) ?? [];
+    for (const alias of aliasMatches) {
+      variants.add(alias);
+    }
+
+    const strippedQuestionLead = normalizedWhitespace.replace(
+      /^(what is|what are|who is|who are|explain|define)\s+/i,
+      '',
+    );
+    if (strippedQuestionLead && strippedQuestionLead !== normalizedWhitespace) {
+      variants.add(strippedQuestionLead);
+    }
+
+    const lowered = this.normalizeText(normalizedWhitespace);
+    if (lowered.includes('first vision')) {
+      variants.add('First Vision');
+    }
+    if (lowered.includes('great apostasy') || lowered.includes('apostasy')) {
+      variants.add('Great Apostasy');
+    }
+    if (lowered.includes('book of mormon')) {
+      variants.add('Book of Mormon');
+    }
+    if (lowered.includes('plan of salvation')) {
+      variants.add('Plan of Salvation');
+    }
+    if (lowered.includes('priesthood')) {
+      variants.add('Priesthood');
+      variants.add('Priesthood authority');
+    }
+    if (lowered.includes('restoration')) {
+      variants.add('Restoration');
+      variants.add('Restoration of the gospel');
+    }
+
+    return Array.from(variants)
+      .map((value) => value.replace(/\s+/g, ' ').trim())
+      .filter((value, index, list) => value.length > 0 && list.indexOf(value) === index)
+      .slice(0, 6);
+  }
+
+  private async getCuratedOfficialChurchCandidate(
+    topicQuery: string,
+  ): Promise<OfficialChurchSearchCandidate | null> {
+    const normalized = this.normalizeText(topicQuery);
+
+    if (normalized.includes('priesthood')) {
+      const url =
+        'https://www.churchofjesuschrist.org/study/manual/gospel-topics/priesthood?lang=eng';
+      const snippet = await this.fetchOfficialChurchCandidateSnippet(url);
+      return {
+        title: 'Priesthood',
+        url,
+        source: 'ChurchofJesusChrist.org',
+        snippet: snippet ||
+          'Learn about priesthood authority and keys in the Gospel Topics resource.',
+      };
+    }
+
+    return null;
   }
 
   async precacheTopMatchOfficialAnswers(input: {
@@ -1689,9 +1821,23 @@ export class YoutubeService {
   private async getPersistedQueryInsight(
     cacheKey: string,
   ): Promise<YoutubeQueryInsightResponse | null> {
-    const row = await this.prismaService.youtubeQueryInsightCache.findUnique({
-      where: { cacheKey },
-    });
+    let row: { insight: unknown; refreshedAt: Date } | null = null;
+
+    try {
+      row = await this.prismaService.youtubeQueryInsightCache.findUnique({
+        where: { cacheKey },
+        select: {
+          insight: true,
+          refreshedAt: true,
+        },
+      });
+    } catch (error) {
+      if (this.isPrismaSchemaMismatchError(error)) {
+        return null;
+      }
+
+      throw error;
+    }
 
     if (!row) {
       return null;
@@ -1721,22 +1867,45 @@ export class YoutubeService {
       cachedAt: refreshedAt.toISOString(),
     };
 
-    await this.prismaService.youtubeQueryInsightCache.upsert({
-      where: { cacheKey },
-      update: {
-        topicQuery,
-        insight: toStore,
-        bestUrl: toStore.bestSourceUrl,
-        refreshedAt,
-      },
-      create: {
-        cacheKey,
-        topicQuery,
-        insight: toStore,
-        bestUrl: toStore.bestSourceUrl,
-        refreshedAt,
-      },
-    });
+    try {
+      await this.prismaService.youtubeQueryInsightCache.upsert({
+        where: { cacheKey },
+        update: {
+          topicQuery,
+          insight: toStore,
+          bestUrl: toStore.bestSourceUrl,
+          refreshedAt,
+        },
+        create: {
+          cacheKey,
+          topicQuery,
+          insight: toStore,
+          bestUrl: toStore.bestSourceUrl,
+          refreshedAt,
+        },
+      });
+    } catch (error) {
+      // Allow responses to succeed even when local schema is behind.
+      if (this.isPrismaSchemaMismatchError(error)) {
+        return;
+      }
+
+      throw error;
+    }
+  }
+
+  private isPrismaSchemaMismatchError(error: unknown): boolean {
+    if (!error || typeof error !== 'object') {
+      return false;
+    }
+
+    const candidate = error as { code?: string; message?: string };
+    if (candidate.code === 'P2021' || candidate.code === 'P2022') {
+      return true;
+    }
+
+    const message = (candidate.message ?? '').toLowerCase();
+    return message.includes('does not exist') || message.includes('unknown column');
   }
 
   private coerceQueryInsightResponse(
@@ -1968,7 +2137,7 @@ export class YoutubeService {
     }
 
     if (!rawCandidates.length) {
-      return [];
+      return this.fetchOfficialChurchSearchCandidatesViaWeb(topicQuery);
     }
 
     const enriched = await Promise.all(
@@ -1982,6 +2151,142 @@ export class YoutubeService {
     );
 
     return enriched;
+  }
+
+  private async fetchOfficialChurchSearchCandidatesViaWeb(
+    topicQuery: string,
+  ): Promise<OfficialChurchSearchCandidate[]> {
+    const bingCandidates = await this.fetchOfficialChurchSearchCandidatesViaBing(topicQuery);
+    if (bingCandidates.length > 0) {
+      return bingCandidates;
+    }
+
+    const scopedQueries = [
+      `site:churchofjesuschrist.org ${topicQuery}`,
+      `site:newsroom.churchofjesuschrist.org ${topicQuery}`,
+      `site:comeuntochrist.org ${topicQuery}`,
+    ];
+
+    const resultSets = await Promise.allSettled(
+      scopedQueries.map((query) => this.fetchWebSearchCandidates(query)),
+    );
+
+    const results = resultSets
+      .filter(
+        (
+          result,
+        ): result is PromiseFulfilledResult<WebSearchCandidate[]> =>
+          result.status === 'fulfilled',
+      )
+      .map((result) => result.value);
+
+    const candidates: OfficialChurchSearchCandidate[] = [];
+    const seen = new Set<string>();
+
+    for (const batch of results) {
+      for (const item of batch) {
+        const normalizedUrl = this.resolveOfficialChurchResultUrl(item.url);
+
+        if (
+          !normalizedUrl ||
+          seen.has(normalizedUrl) ||
+          !this.isAllowedOfficialChurchResult(normalizedUrl)
+        ) {
+          continue;
+        }
+
+        const title = this.normalizeWhitespace(item.title);
+        if (!title || title.length < 4 || this.isIgnoredOfficialChurchTitle(title)) {
+          continue;
+        }
+
+        seen.add(normalizedUrl);
+        candidates.push({
+          title,
+          url: normalizedUrl,
+          source: this.getOfficialChurchSourceLabel(normalizedUrl),
+          snippet: item.snippet || title,
+        });
+
+        if (candidates.length >= 8) {
+          return candidates;
+        }
+      }
+    }
+
+    return candidates;
+  }
+
+  private async fetchOfficialChurchSearchCandidatesViaBing(
+    topicQuery: string,
+  ): Promise<OfficialChurchSearchCandidate[]> {
+    const searchUrl = new URL('https://www.bing.com/search');
+    searchUrl.searchParams.set('q', `site:churchofjesuschrist.org ${topicQuery}`);
+    searchUrl.searchParams.set('format', 'rss');
+
+    const response = await fetch(searchUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0',
+      },
+    });
+
+    if (!response.ok) {
+      return [];
+    }
+
+    const xml = await response.text();
+    const itemRegex = /<item>([\s\S]*?)<\/item>/gi;
+    const linkRegex = /<link>([\s\S]*?)<\/link>/i;
+    const titleRegex = /<title>([\s\S]*?)<\/title>/i;
+    const descriptionRegex = /<description>([\s\S]*?)<\/description>/i;
+
+    const candidates: OfficialChurchSearchCandidate[] = [];
+    const seen = new Set<string>();
+
+    let itemMatch: RegExpExecArray | null;
+    while ((itemMatch = itemRegex.exec(xml)) !== null) {
+      const itemXml = itemMatch[1] ?? '';
+      const rawLink = linkRegex.exec(itemXml)?.[1] ?? '';
+      const normalizedUrl = this.resolveOfficialChurchResultUrl(
+        this.decodeHtmlEntities(rawLink.trim()),
+      );
+
+      if (
+        !normalizedUrl ||
+        seen.has(normalizedUrl) ||
+        !this.isAllowedOfficialChurchResult(normalizedUrl)
+      ) {
+        continue;
+      }
+
+      const rawTitle = titleRegex.exec(itemXml)?.[1] ?? '';
+      const title = this.normalizeWhitespace(
+        this.decodeHtmlEntities(this.stripHtml(rawTitle)),
+      );
+
+      if (!title || title.length < 4 || this.isIgnoredOfficialChurchTitle(title)) {
+        continue;
+      }
+
+      const rawDescription = descriptionRegex.exec(itemXml)?.[1] ?? '';
+      const snippet = this.normalizeWhitespace(
+        this.decodeHtmlEntities(this.stripHtml(rawDescription)),
+      );
+
+      seen.add(normalizedUrl);
+      candidates.push({
+        title,
+        url: normalizedUrl,
+        source: this.getOfficialChurchSourceLabel(normalizedUrl),
+        snippet: snippet || title,
+      });
+
+      if (candidates.length >= 8) {
+        break;
+      }
+    }
+
+    return candidates;
   }
 
   private async fetchOfficialChurchCandidateSnippet(url: string): Promise<string> {

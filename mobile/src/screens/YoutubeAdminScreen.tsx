@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Alert,
   ActivityIndicator,
@@ -37,9 +37,12 @@ import {
   ContentSpreadsheetExportResponse,
   ContentSpreadsheetImportResponse,
   IndexItem,
+  YoutubeCommentsAnalysisResponse,
+  YoutubeOfficialAnswerResponse,
   YoutubePrecacheTopMatchCommentsResponse,
   YoutubePrecacheTopMatchOfficialAnswersResponse,
   YoutubePrecacheQueryInsightResponse,
+  YoutubeQueryInsightResponse,
   YoutubeSearchItem,
   YoutubeWhitelistEntry,
 } from '../types';
@@ -47,6 +50,12 @@ import { RootStackParamList } from '../types/navigation';
 import { formatApiError } from '../lib/formatApiError';
 import { apiClient } from '../lib/apiClient';
 import { SEARCH_CARD_EDIT_ENABLED_KEY } from '../constants/admin';
+import {
+  DEFAULT_TOP_MATCH_INSIGHTS_VISIBILITY,
+  loadTopMatchInsightsVisibility,
+  saveTopMatchInsightsVisibility,
+  TopMatchInsightsVisibility,
+} from '../lib/topMatchInsightsVisibility';
 
 type YoutubeAdminScreenProps = NativeStackScreenProps<RootStackParamList, 'YoutubeAdmin'>;
 
@@ -65,6 +74,7 @@ type SpreadsheetStatus = {
 type HelpSectionKey =
   | 'overview'
   | 'searchCardEdit'
+  | 'topMatchInsights'
   | 'youtubeSearch'
   | 'whitelist'
   | 'indexItems';
@@ -95,6 +105,16 @@ const HELP_CONTENT: Record<
       'Turn this on only for admins or review sessions.',
       'Leave it off for regular users to keep the Search screen simpler.',
       'This setting does not change the data by itself. It only shows or hides the edit action.',
+    ],
+  },
+  topMatchInsights: {
+    title: 'Top match insight visibility',
+    description:
+      'Control which search-level insight cards are visible on the main Search page.',
+    bullets: [
+      'These toggles affect the Search screen immediately after saving.',
+      'Use this when you want to simplify the page for users and only show selected insights.',
+      'The Admin preview below uses the same visibility settings as the Search screen.',
     ],
   },
   youtubeSearch: {
@@ -142,6 +162,8 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
   const [addToSubtopic, setAddToSubtopic] = useState('');
   const [addToCharge, setAddToCharge] = useState('');
   const [isSearchCardEditEnabled, setIsSearchCardEditEnabled] = useState(false);
+  const [topMatchVisibility, setTopMatchVisibility] =
+    useState<TopMatchInsightsVisibility>(DEFAULT_TOP_MATCH_INSIGHTS_VISIBILITY);
   const [isIndexItemsCollapsed, setIsIndexItemsCollapsed] = useState(true);
   const [isWhitelistCollapsed, setIsWhitelistCollapsed] = useState(true);
   const [selectedIndexItemForEdit, setSelectedIndexItemForEdit] = useState<IndexItem | null>(null);
@@ -171,16 +193,19 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
 
     const loadAdminSettings = async () => {
       try {
-        const storedEditSetting = await AsyncStorage.getItem(
-          SEARCH_CARD_EDIT_ENABLED_KEY,
-        );
+        const [storedEditSetting, storedVisibility] = await Promise.all([
+          AsyncStorage.getItem(SEARCH_CARD_EDIT_ENABLED_KEY),
+          loadTopMatchInsightsVisibility(),
+        ]);
 
         if (isMounted) {
           setIsSearchCardEditEnabled(storedEditSetting === '1');
+          setTopMatchVisibility(storedVisibility);
         }
       } catch {
         if (isMounted) {
           setIsSearchCardEditEnabled(false);
+          setTopMatchVisibility(DEFAULT_TOP_MATCH_INSIGHTS_VISIBILITY);
         }
       }
     };
@@ -260,9 +285,99 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
   const topMatchItems = pinnedTopMatchItems.length > 0
     ? pinnedTopMatchItems
     : rawSearchItems.slice(0, 1);
+  const hasActiveQuery = activeQuery.trim().length > 0;
   const standardItems = rawSearchItems.filter((item) => !item.keepOnRefresh);
   const shortFormItems = standardItems.filter((item) => item.isShort);
   const longFormItems = standardItems.filter((item) => !item.isShort);
+
+  const topMatchSummaryQueries = useQueries({
+    queries: topMatchItems.map((item) => ({
+      queryKey: ['youtubeCommentsAnalysis', item.videoId, 120, false, true],
+      queryFn: async (): Promise<YoutubeCommentsAnalysisResponse> => {
+        const response = await apiClient.get<YoutubeCommentsAnalysisResponse>(
+          '/youtube/comments-analysis',
+          {
+            params: {
+              videoId: item.videoId,
+              maxComments: 120,
+              generateIfMissing: false,
+            },
+          },
+        );
+
+        return response.data;
+      },
+      enabled: hasActiveQuery,
+      staleTime: 5 * 60 * 1000,
+      gcTime: 15 * 60 * 1000,
+      retry: 0,
+    })),
+  });
+
+  const topMatchSummaryByVideoId = React.useMemo(() => {
+    const map = new Map<string, (typeof topMatchSummaryQueries)[number]>();
+
+    topMatchItems.forEach((item, index) => {
+      map.set(item.videoId, topMatchSummaryQueries[index]);
+    });
+
+    return map;
+  }, [topMatchItems, topMatchSummaryQueries]);
+
+  const topMatchOfficialAnswerQueries = useQueries({
+    queries: topMatchItems.map((item) => ({
+      queryKey: ['youtubeOfficialAnswer', item.videoId, activeQuery, true],
+      queryFn: async (): Promise<YoutubeOfficialAnswerResponse> => {
+        const response = await apiClient.get<YoutubeOfficialAnswerResponse>(
+          '/youtube/official-answer',
+          {
+            params: {
+              videoId: item.videoId,
+              topicQuery: activeQuery,
+              generateIfMissing: false,
+            },
+          },
+        );
+
+        return response.data;
+      },
+      enabled: hasActiveQuery,
+      staleTime: 5 * 60 * 1000,
+      gcTime: 15 * 60 * 1000,
+      retry: 0,
+    })),
+  });
+
+  const topMatchOfficialAnswerByVideoId = React.useMemo(() => {
+    const map = new Map<string, (typeof topMatchOfficialAnswerQueries)[number]>();
+
+    topMatchItems.forEach((item, index) => {
+      map.set(item.videoId, topMatchOfficialAnswerQueries[index]);
+    });
+
+    return map;
+  }, [topMatchItems, topMatchOfficialAnswerQueries]);
+
+  const queryInsightQuery = useQuery({
+    queryKey: ['youtubeQueryInsight', activeQuery, true],
+    queryFn: async (): Promise<YoutubeQueryInsightResponse> => {
+      const response = await apiClient.get<YoutubeQueryInsightResponse>(
+        '/youtube/query-answer',
+        {
+          params: {
+            topicQuery: activeQuery,
+            generateIfMissing: false,
+          },
+        },
+      );
+
+      return response.data;
+    },
+    enabled: hasActiveQuery,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 15 * 60 * 1000,
+    retry: 0,
+  });
 
   const exportSpreadsheet = async () => {
     setIsSpreadsheetBusy(true);
@@ -660,6 +775,25 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
     }
   };
 
+  const updateTopMatchVisibility = async (
+    field: keyof TopMatchInsightsVisibility,
+    value: boolean,
+  ) => {
+    const nextVisibility: TopMatchInsightsVisibility = {
+      ...topMatchVisibility,
+      [field]: value,
+    };
+
+    setTopMatchVisibility(nextVisibility);
+
+    try {
+      await saveTopMatchInsightsVisibility(nextVisibility);
+    } catch {
+      setTopMatchVisibility(topMatchVisibility);
+      Alert.alert('Save failed', 'Could not save top match visibility settings.');
+    }
+  };
+
   const openHelp = (section: HelpSectionKey) => {
     setHelpSection(section);
   };
@@ -761,6 +895,312 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
             Source: {item.sourceKey}
           </Text>
         </View>
+      </View>
+    );
+  };
+
+  const renderTopMatchInsightsPreview = () => {
+    if (!hasActiveQuery || topMatchItems.length === 0) {
+      return null;
+    }
+
+    const primaryTopMatch = topMatchItems[0] ?? null;
+    const primaryOfficialAnswerQuery = primaryTopMatch
+      ? topMatchOfficialAnswerByVideoId.get(primaryTopMatch.videoId)
+      : null;
+
+    return (
+      <View style={styles.topMatchPreviewWrap}>
+        <Text style={styles.topMatchPreviewLabel}>Top match insight preview</Text>
+
+        {(() => {
+          if (queryInsightQuery.isLoading) {
+            return (
+              <View style={styles.topMatchSummaryCard}>
+                <View style={styles.topMatchSummaryHeaderRow}>
+                  <Text style={styles.topMatchSummaryTitle}>AI Query Insights</Text>
+                  <View style={styles.topMatchSummaryStatusBadge}>
+                    <Text style={styles.topMatchSummaryStatusText}>Loading</Text>
+                  </View>
+                </View>
+                <Text style={styles.topMatchSummaryHint}>Checking cached AI answer...</Text>
+              </View>
+            );
+          }
+
+          if (queryInsightQuery.isError) {
+            return (
+              <View style={styles.topMatchSummaryCard}>
+                <View style={styles.topMatchSummaryHeaderRow}>
+                  <Text style={styles.topMatchSummaryTitle}>AI Query Insights</Text>
+                  <View
+                    style={[
+                      styles.topMatchSummaryStatusBadge,
+                      styles.topMatchSummaryStatusBadgeError,
+                    ]}
+                  >
+                    <Text style={styles.topMatchSummaryStatusText}>API Error</Text>
+                  </View>
+                </View>
+                <Text style={styles.topMatchSummaryHint}>The API request failed for this query.</Text>
+                <Text style={styles.topMatchErrorText}>{formatApiError(queryInsightQuery.error)}</Text>
+              </View>
+            );
+          }
+
+          const insight = queryInsightQuery.data;
+          if (!insight) {
+            return (
+              <View style={styles.topMatchSummaryCard}>
+                <View style={styles.topMatchSummaryHeaderRow}>
+                  <Text style={styles.topMatchSummaryTitle}>AI Query Insights</Text>
+                  <View
+                    style={[
+                      styles.topMatchSummaryStatusBadge,
+                      styles.topMatchSummaryStatusBadgeEmpty,
+                    ]}
+                  >
+                    <Text style={styles.topMatchSummaryStatusText}>No Data</Text>
+                  </View>
+                </View>
+                <Text style={styles.topMatchSummaryHint}>
+                  API returned no insight payload for this query.
+                </Text>
+              </View>
+            );
+          }
+
+          const cacheStatusLabel = insight
+            .cacheStatus === 'hit'
+            ? 'Pre-cached'
+            : insight.cacheStatus === 'generated'
+              ? 'Generated now'
+              : 'Missing';
+
+          return (
+            <>
+              <View
+                style={[
+                  styles.topMatchSummaryCard,
+                  insight?.cacheStatus === 'hit'
+                    ? styles.topMatchSummaryCardHit
+                    : styles.topMatchSummaryCardGenerated,
+                ]}
+              >
+                <View style={styles.topMatchSummaryHeaderRow}>
+                  <Text style={styles.topMatchSummaryTitle}>AI Answer</Text>
+                  <View
+                    style={[
+                      styles.topMatchSummaryStatusBadge,
+                      insight.cacheStatus === 'hit'
+                        ? styles.topMatchSummaryStatusBadgeHit
+                        : styles.topMatchSummaryStatusBadgeGenerated,
+                    ]}
+                  >
+                    <Text style={styles.topMatchSummaryStatusText}>{cacheStatusLabel}</Text>
+                  </View>
+                </View>
+                <Text style={styles.topMatchSummaryText}>
+                  {insight.answerText
+                    ? insight.answerText
+                    : 'No AI answer returned for this query (API success, but no answer found).'}
+                </Text>
+              </View>
+
+              <View style={[styles.topMatchSummaryCard, styles.topMatchBestSiteCard]}>
+                <View style={styles.topMatchSummaryHeaderRow}>
+                  <Text style={styles.topMatchSummaryTitle}>Best Site for an Answer</Text>
+                  <View
+                    style={[
+                      styles.topMatchSummaryStatusBadge,
+                      insight.cacheStatus === 'hit'
+                        ? styles.topMatchSummaryStatusBadgeHit
+                        : styles.topMatchSummaryStatusBadgeGenerated,
+                    ]}
+                  >
+                    <Text style={styles.topMatchSummaryStatusText}>{cacheStatusLabel}</Text>
+                  </View>
+                </View>
+                {insight.bestSourceTitle ? (
+                  <Text style={styles.topMatchOfficialAnswerTitle}>{insight.bestSourceTitle}</Text>
+                ) : (
+                  <Text style={styles.topMatchSummaryHint}>
+                    No best source returned for this query (API success, but no source found).
+                  </Text>
+                )}
+                {insight.bestSourceSnippet ? (
+                  <Text style={styles.topMatchSummaryText}>{insight.bestSourceSnippet}</Text>
+                ) : null}
+                {insight.bestSourceRationale ? (
+                  <Text style={styles.topMatchSummaryCachedAtText}>{insight.bestSourceRationale}</Text>
+                ) : null}
+              </View>
+            </>
+          );
+        })()}
+
+        {(() => {
+          if (!primaryTopMatch || !primaryOfficialAnswerQuery || primaryOfficialAnswerQuery.isLoading) {
+            return (
+              <View style={[styles.topMatchSummaryCard, styles.topMatchOfficialAnswerCard]}>
+                <View style={styles.topMatchSummaryHeaderRow}>
+                  <Text style={styles.topMatchSummaryTitle}>Official Church Answer</Text>
+                  <View style={styles.topMatchSummaryStatusBadge}>
+                    <Text style={styles.topMatchSummaryStatusText}>Loading</Text>
+                  </View>
+                </View>
+                <Text style={styles.topMatchSummaryHint}>Checking cached official church answer...</Text>
+              </View>
+            );
+          }
+
+          if (primaryOfficialAnswerQuery.isError) {
+            return (
+              <View style={[styles.topMatchSummaryCard, styles.topMatchOfficialAnswerCard]}>
+                <View style={styles.topMatchSummaryHeaderRow}>
+                  <Text style={styles.topMatchSummaryTitle}>Official Church Answer</Text>
+                  <View
+                    style={[
+                      styles.topMatchSummaryStatusBadge,
+                      styles.topMatchSummaryStatusBadgeError,
+                    ]}
+                  >
+                    <Text style={styles.topMatchSummaryStatusText}>API Error</Text>
+                  </View>
+                </View>
+                <Text style={styles.topMatchSummaryHint}>The API request failed for this query.</Text>
+                <Text style={styles.topMatchErrorText}>
+                  {formatApiError(primaryOfficialAnswerQuery.error)}
+                </Text>
+              </View>
+            );
+          }
+
+          const answer = primaryOfficialAnswerQuery.data;
+          if (!answer) {
+            return (
+              <View style={[styles.topMatchSummaryCard, styles.topMatchOfficialAnswerCard]}>
+                <View style={styles.topMatchSummaryHeaderRow}>
+                  <Text style={styles.topMatchSummaryTitle}>Official Church Answer</Text>
+                  <View
+                    style={[
+                      styles.topMatchSummaryStatusBadge,
+                      styles.topMatchSummaryStatusBadgeEmpty,
+                    ]}
+                  >
+                    <Text style={styles.topMatchSummaryStatusText}>No Data</Text>
+                  </View>
+                </View>
+                <Text style={styles.topMatchSummaryHint}>
+                  API returned no official-answer payload for this query.
+                </Text>
+              </View>
+            );
+          }
+
+          const cacheStatusLabel = answer
+            .cacheStatus === 'hit'
+            ? 'Pre-cached'
+            : answer.cacheStatus === 'generated'
+              ? 'Generated now'
+              : 'Missing';
+
+          return (
+            <View style={[styles.topMatchSummaryCard, styles.topMatchOfficialAnswerCard]}>
+              <View style={styles.topMatchSummaryHeaderRow}>
+                <Text style={styles.topMatchSummaryTitle}>Official Church Answer</Text>
+                <View
+                  style={[
+                    styles.topMatchSummaryStatusBadge,
+                    answer.cacheStatus === 'hit'
+                      ? styles.topMatchSummaryStatusBadgeHit
+                      : styles.topMatchSummaryStatusBadgeGenerated,
+                  ]}
+                >
+                  <Text style={styles.topMatchSummaryStatusText}>{cacheStatusLabel}</Text>
+                </View>
+              </View>
+              {answer?.matchFound && answer.answerTitle ? (
+                <>
+                  <Text style={styles.topMatchOfficialAnswerTitle}>{answer.answerTitle}</Text>
+                  {answer.answerSnippet ? (
+                    <Text style={styles.topMatchSummaryText}>{answer.answerSnippet}</Text>
+                  ) : null}
+                </>
+              ) : (
+                <Text style={styles.topMatchSummaryHint}>
+                  No official church answer matched this query (API success, but no match found).
+                </Text>
+              )}
+            </View>
+          );
+        })()}
+
+        {topMatchItems.map((item) => {
+          const summaryQuery = topMatchSummaryByVideoId.get(item.videoId);
+
+          if (!summaryQuery || summaryQuery.isLoading) {
+            return (
+              <Text key={`summary-loading-${item.videoId}`} style={styles.topMatchSummaryHint}>
+                Checking cached comment summary...
+              </Text>
+            );
+          }
+
+          if (summaryQuery.isError) {
+            return (
+              <Text key={`summary-error-${item.videoId}`} style={styles.topMatchSummaryHint}>
+                Comment summary unavailable right now.
+              </Text>
+            );
+          }
+
+          const summary = summaryQuery.data;
+          if (!summary || summary.cacheStatus === 'miss') {
+            return (
+              <View key={`summary-miss-${item.videoId}`} style={styles.topMatchSummaryCard}>
+                <Text style={styles.topMatchSummaryTitle}>Comment Summary</Text>
+                <Text style={styles.topMatchSummaryHint}>
+                  No comment summary cached yet. Use Cache Top Match Insights to generate it.
+                </Text>
+              </View>
+            );
+          }
+
+          const cacheStatusLabel =
+            summary.cacheStatus === 'hit'
+              ? 'Pre-cached'
+              : summary.cacheStatus === 'generated'
+                ? 'Generated now'
+                : 'Missing';
+
+          return (
+            <View
+              key={`summary-${item.videoId}`}
+              style={[
+                styles.topMatchSummaryCard,
+                summary.cacheStatus === 'hit'
+                  ? styles.topMatchSummaryCardHit
+                  : styles.topMatchSummaryCardGenerated,
+              ]}
+            >
+              <View style={styles.topMatchSummaryHeaderRow}>
+                <Text style={styles.topMatchSummaryTitle}>Comment Summary</Text>
+                <View
+                  style={[
+                    styles.topMatchSummaryStatusBadge,
+                    summary.cacheStatus === 'hit'
+                      ? styles.topMatchSummaryStatusBadgeHit
+                      : styles.topMatchSummaryStatusBadgeGenerated,
+                  ]}
+                >
+                  <Text style={styles.topMatchSummaryStatusText}>{cacheStatusLabel}</Text>
+                </View>
+              </View>
+              <Text style={styles.topMatchSummaryText}>{summary.overallSummary}</Text>
+            </View>
+          );
+        })}
       </View>
     );
   };
@@ -874,6 +1314,48 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
                   value={isSearchCardEditEnabled}
                   onValueChange={toggleSearchCardEditEnabled}
                 />
+              </View>
+            </View>
+
+            <View style={styles.settingRowStacked}>
+              <View style={styles.settingTextWrap}>
+                <Text style={styles.settingLabel}>Top match insight visibility</Text>
+                <Text style={styles.settingHint}>
+                  Choose which search-level insight cards appear on the main Search page.
+                </Text>
+              </View>
+              <View style={styles.settingActionsRow}>
+                {renderHelpButton('topMatchInsights')}
+              </View>
+              <View style={styles.visibilityTogglesWrap}>
+                <View style={styles.visibilityToggleRow}>
+                  <Text style={styles.visibilityToggleLabel}>AI Answer</Text>
+                  <Switch
+                    value={topMatchVisibility.aiAnswer}
+                    onValueChange={(value) => updateTopMatchVisibility('aiAnswer', value)}
+                  />
+                </View>
+                <View style={styles.visibilityToggleRow}>
+                  <Text style={styles.visibilityToggleLabel}>Best Site for an Answer</Text>
+                  <Switch
+                    value={topMatchVisibility.bestSource}
+                    onValueChange={(value) => updateTopMatchVisibility('bestSource', value)}
+                  />
+                </View>
+                <View style={styles.visibilityToggleRow}>
+                  <Text style={styles.visibilityToggleLabel}>Official Church Answer</Text>
+                  <Switch
+                    value={topMatchVisibility.officialAnswer}
+                    onValueChange={(value) => updateTopMatchVisibility('officialAnswer', value)}
+                  />
+                </View>
+                <View style={styles.visibilityToggleRow}>
+                  <Text style={styles.visibilityToggleLabel}>Comment Summary</Text>
+                  <Switch
+                    value={topMatchVisibility.commentSummary}
+                    onValueChange={(value) => updateTopMatchVisibility('commentSummary', value)}
+                  />
+                </View>
               </View>
             </View>
 
@@ -1106,6 +1588,8 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
               </View>
             ) : null}
           </View>
+
+          {renderTopMatchInsightsPreview()}
 
           {!activeQuery ? (
             <View style={styles.emptyStateCompact}>
@@ -1449,6 +1933,38 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
   },
+  settingRowStacked: {
+    marginTop: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    gap: 10,
+  },
+  settingActionsRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-start',
+  },
+  visibilityTogglesWrap: {
+    borderTopWidth: 1,
+    borderTopColor: '#e2e8f0',
+    paddingTop: 8,
+    gap: 8,
+  },
+  visibilityToggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  visibilityToggleLabel: {
+    flex: 1,
+    color: '#0f172a',
+    fontSize: 13,
+    fontWeight: '600',
+  },
   spreadsheetActions: {
     flexDirection: 'row',
     gap: 10,
@@ -1587,6 +2103,104 @@ const styles = StyleSheet.create({
     color: '#1f2937',
     fontSize: 12,
     lineHeight: 16,
+  },
+  topMatchPreviewWrap: {
+    marginHorizontal: 16,
+    marginBottom: 8,
+    gap: 8,
+  },
+  topMatchPreviewLabel: {
+    color: '#1e3a8a',
+    fontSize: 12,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+  topMatchSummaryCard: {
+    borderRadius: 10,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    backgroundColor: '#f8fafc',
+    borderColor: '#cbd5e1',
+  },
+  topMatchSummaryCardHit: {
+    backgroundColor: '#ecfdf5',
+    borderColor: '#86efac',
+  },
+  topMatchSummaryCardGenerated: {
+    backgroundColor: '#fffbeb',
+    borderColor: '#fcd34d',
+  },
+  topMatchSummaryHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+    gap: 8,
+  },
+  topMatchSummaryTitle: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#1e3a8a',
+    textTransform: 'uppercase',
+  },
+  topMatchSummaryStatusBadge: {
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  topMatchSummaryStatusBadgeHit: {
+    backgroundColor: '#dcfce7',
+  },
+  topMatchSummaryStatusBadgeGenerated: {
+    backgroundColor: '#fef3c7',
+  },
+  topMatchSummaryStatusBadgeError: {
+    backgroundColor: '#fee2e2',
+  },
+  topMatchSummaryStatusBadgeEmpty: {
+    backgroundColor: '#e2e8f0',
+  },
+  topMatchSummaryStatusText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#1f2937',
+    textTransform: 'uppercase',
+  },
+  topMatchSummaryText: {
+    color: '#1f2937',
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  topMatchSummaryCachedAtText: {
+    marginTop: 4,
+    fontSize: 11,
+    color: '#475569',
+  },
+  topMatchSummaryHint: {
+    fontSize: 12,
+    color: '#6b7280',
+  },
+  topMatchErrorText: {
+    marginTop: 6,
+    fontSize: 12,
+    color: '#7f1d1d',
+    lineHeight: 16,
+  },
+  topMatchOfficialAnswerCard: {
+    backgroundColor: '#eff6ff',
+    borderColor: '#93c5fd',
+  },
+  topMatchBestSiteCard: {
+    backgroundColor: '#eefcf3',
+    borderColor: '#86efac',
+  },
+  topMatchOfficialAnswerTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0f172a',
+    marginBottom: 4,
   },
   sectionTitleRow: {
     flexDirection: 'row',

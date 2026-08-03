@@ -37,6 +37,11 @@ import {
 import { formatApiError } from '../lib/formatApiError';
 import { SEARCH_CARD_EDIT_ENABLED_KEY } from '../constants/admin';
 import { apiClient } from '../lib/apiClient';
+import {
+  DEFAULT_TOP_MATCH_INSIGHTS_VISIBILITY,
+  loadTopMatchInsightsVisibility,
+  TopMatchInsightsVisibility,
+} from '../lib/topMatchInsightsVisibility';
 
 type SearchScreenProps = NativeStackScreenProps<RootStackParamList, 'Search'>;
 
@@ -61,6 +66,8 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ navigation }) => {
   const [adminUnlockVisible, setAdminUnlockVisible] = useState(false);
   const [adminAccessInput, setAdminAccessInput] = useState('');
   const [isSearchCardEditEnabled, setIsSearchCardEditEnabled] = useState(false);
+  const [topMatchVisibility, setTopMatchVisibility] =
+    useState<TopMatchInsightsVisibility>(DEFAULT_TOP_MATCH_INSIGHTS_VISIBILITY);
   const [selectedTopic, setSelectedTopic] = useState<string | null>(null);
   const [selectedSubtopic, setSelectedSubtopic] = useState<string | null>(null);
   const [selectedCharge, setSelectedCharge] = useState<string | null>(null);
@@ -101,13 +108,19 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ navigation }) => {
 
       const loadSearchCardEditSetting = async () => {
         try {
-          const stored = await AsyncStorage.getItem(SEARCH_CARD_EDIT_ENABLED_KEY);
+          const [stored, storedVisibility] = await Promise.all([
+            AsyncStorage.getItem(SEARCH_CARD_EDIT_ENABLED_KEY),
+            loadTopMatchInsightsVisibility(),
+          ]);
+
           if (isMounted) {
             setIsSearchCardEditEnabled(stored === '1');
+            setTopMatchVisibility(storedVisibility);
           }
         } catch {
           if (isMounted) {
             setIsSearchCardEditEnabled(false);
+            setTopMatchVisibility(DEFAULT_TOP_MATCH_INSIGHTS_VISIBILITY);
           }
         }
       };
@@ -629,12 +642,21 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ navigation }) => {
       return null;
     }
 
+    const primaryTopMatch = topMatchItems[0] ?? null;
+    const primaryOfficialAnswerQuery = primaryTopMatch
+      ? topMatchOfficialAnswerByVideoId.get(primaryTopMatch.videoId)
+      : null;
+
     return (
       <View style={styles.topMatchContainer}>
         <Text style={styles.topMatchLabel}>
           {topMatchItems.length > 1 ? `Top matches (${topMatchItems.length})` : 'Top match'}
         </Text>
         {(() => {
+          if (!topMatchVisibility.aiAnswer && !topMatchVisibility.bestSource) {
+            return null;
+          }
+
           if (queryInsightQuery.isLoading) {
             return <Text style={styles.topMatchSummaryHint}>Checking cached AI answer...</Text>;
           }
@@ -657,7 +679,7 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ navigation }) => {
 
           return (
             <>
-              {insight.answerText ? (
+              {topMatchVisibility.aiAnswer && insight.answerText ? (
                 <View
                   style={[
                     styles.topMatchSummaryCard,
@@ -691,7 +713,7 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ navigation }) => {
                 </View>
               ) : null}
 
-              {insight.bestSourceUrl && insight.bestSourceTitle ? (
+              {topMatchVisibility.bestSource && insight.bestSourceUrl && insight.bestSourceTitle ? (
                 <View style={[styles.topMatchSummaryCard, styles.topMatchBestSiteCard]}>
                   <View style={styles.topMatchSummaryHeaderRow}>
                     <Text style={styles.topMatchSummaryTitle}>Best Site for an Answer</Text>
@@ -737,6 +759,97 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ navigation }) => {
             </>
           );
         })()}
+        {(() => {
+          if (!topMatchVisibility.officialAnswer) {
+            return null;
+          }
+
+          if (!primaryTopMatch) {
+            return null;
+          }
+
+          if (!primaryOfficialAnswerQuery || primaryOfficialAnswerQuery.isLoading) {
+            return (
+              <Text style={styles.topMatchSummaryHint}>Checking cached official church answer...</Text>
+            );
+          }
+
+          if (primaryOfficialAnswerQuery.isError) {
+            return (
+              <Text style={styles.topMatchSummaryHint}>Official church answer unavailable right now.</Text>
+            );
+          }
+
+          const answer = primaryOfficialAnswerQuery.data;
+
+          if (!answer || answer.cacheStatus === 'miss') {
+            return null;
+          }
+
+          if (!answer.matchFound || !answer.answerTitle || !answer.answerUrl) {
+            return null;
+          }
+
+          const cacheStatusLabel =
+            answer.cacheStatus === 'hit'
+              ? 'Pre-cached'
+              : answer.cacheStatus === 'generated'
+                ? 'Generated now'
+                : 'Missing';
+
+          return (
+            <View
+              style={[
+                styles.topMatchSummaryCard,
+                styles.topMatchOfficialAnswerCard,
+              ]}
+            >
+              <View style={styles.topMatchSummaryHeaderRow}>
+                <Text style={styles.topMatchSummaryTitle}>Official Church Answer</Text>
+                <View
+                  style={[
+                    styles.topMatchSummaryStatusBadge,
+                    answer.cacheStatus === 'hit'
+                      ? styles.topMatchSummaryStatusBadgeHit
+                      : styles.topMatchSummaryStatusBadgeGenerated,
+                  ]}
+                >
+                  <Text style={styles.topMatchSummaryStatusText}>{cacheStatusLabel}</Text>
+                </View>
+              </View>
+              <Text style={styles.topMatchOfficialAnswerTitle}>{answer.answerTitle}</Text>
+              {answer.answerSnippet ? (
+                <Text style={styles.topMatchSummaryText}>{answer.answerSnippet}</Text>
+              ) : null}
+              <Text style={styles.topMatchOfficialAnswerMeta}>
+                {answer.answerSource ?? 'Official Church Source'}
+                {` • Confidence ${answer.confidenceScore.toFixed(2)}`}
+              </Text>
+              {answer.rationale ? (
+                <Text style={styles.topMatchSummaryCachedAtText}>{answer.rationale}</Text>
+              ) : null}
+              <TouchableOpacity
+                style={styles.topMatchOfficialAnswerLinkButton}
+                onPress={() => handleOpenExternalUrl(answer.answerUrl!)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.topMatchOfficialAnswerLinkText}>Open Official Answer</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.topMatchOfficialAnswerSecondaryButton}
+                onPress={() => handleShareExternalUrl(answer.answerTitle!, answer.answerUrl!)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.topMatchOfficialAnswerSecondaryText}>Share Link</Text>
+              </TouchableOpacity>
+              {answer.cachedAt ? (
+                <Text style={styles.topMatchSummaryCachedAtText}>
+                  Cached {new Date(answer.cachedAt).toLocaleString()}
+                </Text>
+              ) : null}
+            </View>
+          );
+        })()}
         {topMatchItems.map((item, index) => (
           <View key={item.videoId}>
             {renderVideoCard({ item, isTopMatch: true })}
@@ -745,6 +858,10 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ navigation }) => {
             ) : null}
 
             {(() => {
+              if (!topMatchVisibility.commentSummary) {
+                return null;
+              }
+
               const summaryQuery = topMatchSummaryByVideoId.get(item.videoId);
 
               if (!summaryQuery || summaryQuery.isLoading) {
@@ -803,92 +920,6 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ navigation }) => {
                   {summary.cachedAt ? (
                     <Text style={styles.topMatchSummaryCachedAtText}>
                       Cached {new Date(summary.cachedAt).toLocaleString()}
-                    </Text>
-                  ) : null}
-                </View>
-              );
-            })()}
-
-            {(() => {
-              const answerQuery = topMatchOfficialAnswerByVideoId.get(item.videoId);
-
-              if (!answerQuery || answerQuery.isLoading) {
-                return (
-                  <Text style={styles.topMatchSummaryHint}>Checking cached official church answer...</Text>
-                );
-              }
-
-              if (answerQuery.isError) {
-                return (
-                  <Text style={styles.topMatchSummaryHint}>Official church answer unavailable right now.</Text>
-                );
-              }
-
-              const answer = answerQuery.data;
-
-              if (!answer || answer.cacheStatus === 'miss') {
-                return null;
-              }
-
-              const cacheStatusLabel =
-                answer.cacheStatus === 'hit'
-                  ? 'Pre-cached'
-                  : answer.cacheStatus === 'generated'
-                    ? 'Generated now'
-                    : 'Missing';
-
-              if (!answer.matchFound || !answer.answerTitle || !answer.answerUrl) {
-                return null;
-              }
-
-              return (
-                <View
-                  style={[
-                    styles.topMatchSummaryCard,
-                    styles.topMatchOfficialAnswerCard,
-                  ]}
-                >
-                  <View style={styles.topMatchSummaryHeaderRow}>
-                    <Text style={styles.topMatchSummaryTitle}>Official Church Answer</Text>
-                    <View
-                      style={[
-                        styles.topMatchSummaryStatusBadge,
-                        answer.cacheStatus === 'hit'
-                          ? styles.topMatchSummaryStatusBadgeHit
-                          : styles.topMatchSummaryStatusBadgeGenerated,
-                      ]}
-                    >
-                      <Text style={styles.topMatchSummaryStatusText}>{cacheStatusLabel}</Text>
-                    </View>
-                  </View>
-                  <Text style={styles.topMatchOfficialAnswerTitle}>{answer.answerTitle}</Text>
-                  {answer.answerSnippet ? (
-                    <Text style={styles.topMatchSummaryText}>{answer.answerSnippet}</Text>
-                  ) : null}
-                  <Text style={styles.topMatchOfficialAnswerMeta}>
-                    {answer.answerSource ?? 'Official Church Source'}
-                    {` • Confidence ${answer.confidenceScore.toFixed(2)}`}
-                  </Text>
-                  {answer.rationale ? (
-                    <Text style={styles.topMatchSummaryCachedAtText}>{answer.rationale}</Text>
-                  ) : null}
-                  <TouchableOpacity
-                    style={styles.topMatchOfficialAnswerLinkButton}
-                    onPress={() => handleOpenExternalUrl(answer.answerUrl)}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={styles.topMatchOfficialAnswerLinkText}>Open Official Answer</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.topMatchOfficialAnswerSecondaryButton}
-                    onPress={() => handleShareExternalUrl(answer.answerTitle, answer.answerUrl)}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={styles.topMatchOfficialAnswerSecondaryText}>Share Link</Text>
-                  </TouchableOpacity>
-                  {answer.cachedAt ? (
-                    <Text style={styles.topMatchSummaryCachedAtText}>
-                      Cached {new Date(answer.cachedAt).toLocaleString()}
                     </Text>
                   ) : null}
                 </View>
