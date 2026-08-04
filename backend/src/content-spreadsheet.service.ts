@@ -11,6 +11,18 @@ type SpreadsheetExportRow = {
   subtopic: string | null;
   charge: string | null;
   searchQuery: string;
+  videoUrl: string | null;
+  duration: string | null;
+  startTimestamp: string | null;
+  keepOnRefresh: boolean | null;
+  pinOrder: number | null;
+};
+
+type SpreadsheetImportRow = {
+  generalTopic: string | null;
+  subtopic: string | null;
+  charge: string | null;
+  searchQuery: string;
   videoId: string | null;
   videoTitle: string | null;
   videoDescription: string | null;
@@ -27,8 +39,6 @@ type SpreadsheetExportRow = {
   pinOrder: number | null;
   youtubeItemJson: string | null;
 };
-
-type SpreadsheetImportRow = SpreadsheetExportRow;
 
 type ImportRowWithMeta = {
   rowNumber: number;
@@ -71,21 +81,11 @@ const CSV_COLUMNS: (keyof SpreadsheetExportRow)[] = [
   'subtopic',
   'charge',
   'searchQuery',
-  'videoId',
-  'videoTitle',
-  'videoDescription',
-  'channelTitle',
-  'channelId',
-  'publishedAt',
-  'thumbnailUrl',
   'videoUrl',
   'duration',
-  'durationSeconds',
-  'isShort',
   'startTimestamp',
   'keepOnRefresh',
   'pinOrder',
-  'youtubeItemJson',
 ];
 
 @Injectable()
@@ -214,7 +214,7 @@ export class ContentSpreadsheetService {
 
     const rows = parse(trimmed, {
       columns: (headers: string[]) =>
-        headers.map((header) => header.trim().replace(/^\uFEFF/, '')),
+        headers.map((header) => this.canonicalizeImportHeader(header)),
       skip_empty_lines: true,
       trim: true,
       relax_column_count: true,
@@ -430,26 +430,22 @@ export class ContentSpreadsheetService {
     videoItem: YoutubeSearchResult | null,
     _source: 'search_index' | 'pinned_override',
   ): SpreadsheetExportRow {
+    if (videoItem?.videoUrl && !this.isValidYoutubeVideoUrl(videoItem.videoUrl)) {
+      throw new BadRequestException(
+        `videoUrl isn't a valid YouTube URL for topic path "${searchQuery}": ${videoItem.videoUrl}`,
+      );
+    }
+
     return {
       generalTopic: indexRow.generalTopic,
       subtopic: indexRow.subtopic,
       charge: indexRow.charge,
       searchQuery,
-      videoId: videoItem?.videoId ?? null,
-      videoTitle: videoItem?.title ?? null,
-      videoDescription: videoItem?.description ?? null,
-      channelTitle: videoItem?.channelTitle ?? null,
-      channelId: videoItem?.channelId ?? null,
-      publishedAt: videoItem?.publishedAt ?? null,
-      thumbnailUrl: videoItem?.thumbnailUrl ?? null,
       videoUrl: videoItem?.videoUrl ?? null,
       duration: videoItem?.duration ?? null,
-      durationSeconds: videoItem?.durationSeconds ?? null,
-      isShort: videoItem?.isShort ?? null,
       startTimestamp: videoItem?.startTimestamp ?? null,
       keepOnRefresh: videoItem?.keepOnRefresh ?? null,
       pinOrder: videoItem?.pinOrder ?? null,
-      youtubeItemJson: videoItem ? JSON.stringify(videoItem) : null,
     };
   }
 
@@ -653,6 +649,64 @@ export class ContentSpreadsheetService {
       .replace(/[^a-z0-9\s]/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
+  }
+
+  private canonicalizeImportHeader(header: string): string {
+    const original = header.trim().replace(/^\uFEFF/, '');
+    const normalized = original.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+    const aliasMap: Record<string, string> = {
+      generaltopic: 'generalTopic',
+      subtopic: 'subtopic',
+      charge: 'charge',
+      searchquery: 'searchQuery',
+      videoid: 'videoId',
+      videold: 'videoId',
+      videotitle: 'videoTitle',
+      videodescription: 'videoDescription',
+      channeltitle: 'channelTitle',
+      channelid: 'channelId',
+      publishedat: 'publishedAt',
+      thumbnailurl: 'thumbnailUrl',
+      videourl: 'videoUrl',
+      duration: 'duration',
+      durationseconds: 'durationSeconds',
+      isshort: 'isShort',
+      starttimestamp: 'startTimestamp',
+      starttime: 'startTimestamp',
+      starttimes: 'startTimestamp',
+      keeponrefresh: 'keepOnRefresh',
+      pinorder: 'pinOrder',
+      youtubeitemjson: 'youtubeItemJson',
+    };
+
+    return aliasMap[normalized] ?? original;
+  }
+
+  private isValidYoutubeVideoUrl(value: string): boolean {
+    const raw = value.trim();
+
+    if (!raw) {
+      return false;
+    }
+
+    try {
+      const url = new URL(raw);
+      const host = url.hostname.toLowerCase();
+      const isYoutubeHost =
+        host === 'youtube.com' ||
+        host.endsWith('.youtube.com') ||
+        host === 'youtu.be' ||
+        host.endsWith('.youtu.be');
+
+      if (!isYoutubeHost) {
+        return false;
+      }
+
+      return this.extractVideoId(null, raw) !== null;
+    } catch {
+      return false;
+    }
   }
 
   private decodeHtmlEntities(value: string): string {

@@ -32,6 +32,8 @@ export declare class ContentSpreadsheetService {
     private hasTopicContext;
     private hasAnyVideoData;
     private normalizeQueryKey;
+    private canonicalizeImportHeader;
+    private isValidYoutubeVideoUrl;
     private decodeHtmlEntities;
     private extractVideoId;
     private fetchVideoMetadataById;

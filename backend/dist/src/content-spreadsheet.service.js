@@ -20,21 +20,11 @@ const CSV_COLUMNS = [
     'subtopic',
     'charge',
     'searchQuery',
-    'videoId',
-    'videoTitle',
-    'videoDescription',
-    'channelTitle',
-    'channelId',
-    'publishedAt',
-    'thumbnailUrl',
     'videoUrl',
     'duration',
-    'durationSeconds',
-    'isShort',
     'startTimestamp',
     'keepOnRefresh',
     'pinOrder',
-    'youtubeItemJson',
 ];
 let ContentSpreadsheetService = class ContentSpreadsheetService {
     prisma;
@@ -133,7 +123,7 @@ let ContentSpreadsheetService = class ContentSpreadsheetService {
             throw new common_1.BadRequestException('CSV content is empty.');
         }
         const rows = (0, sync_1.parse)(trimmed, {
-            columns: (headers) => headers.map((header) => header.trim().replace(/^\uFEFF/, '')),
+            columns: (headers) => headers.map((header) => this.canonicalizeImportHeader(header)),
             skip_empty_lines: true,
             trim: true,
             relax_column_count: true,
@@ -296,26 +286,19 @@ let ContentSpreadsheetService = class ContentSpreadsheetService {
         };
     }
     buildExportRow(indexRow, searchQuery, videoItem, _source) {
+        if (videoItem?.videoUrl && !this.isValidYoutubeVideoUrl(videoItem.videoUrl)) {
+            throw new common_1.BadRequestException(`videoUrl isn't a valid YouTube URL for topic path "${searchQuery}": ${videoItem.videoUrl}`);
+        }
         return {
             generalTopic: indexRow.generalTopic,
             subtopic: indexRow.subtopic,
             charge: indexRow.charge,
             searchQuery,
-            videoId: videoItem?.videoId ?? null,
-            videoTitle: videoItem?.title ?? null,
-            videoDescription: videoItem?.description ?? null,
-            channelTitle: videoItem?.channelTitle ?? null,
-            channelId: videoItem?.channelId ?? null,
-            publishedAt: videoItem?.publishedAt ?? null,
-            thumbnailUrl: videoItem?.thumbnailUrl ?? null,
             videoUrl: videoItem?.videoUrl ?? null,
             duration: videoItem?.duration ?? null,
-            durationSeconds: videoItem?.durationSeconds ?? null,
-            isShort: videoItem?.isShort ?? null,
             startTimestamp: videoItem?.startTimestamp ?? null,
             keepOnRefresh: videoItem?.keepOnRefresh ?? null,
             pinOrder: videoItem?.pinOrder ?? null,
-            youtubeItemJson: videoItem ? JSON.stringify(videoItem) : null,
         };
     }
     normalizeImportRow(row) {
@@ -474,6 +457,56 @@ let ContentSpreadsheetService = class ContentSpreadsheetService {
             .replace(/[^a-z0-9\s]/g, ' ')
             .replace(/\s+/g, ' ')
             .trim();
+    }
+    canonicalizeImportHeader(header) {
+        const original = header.trim().replace(/^\uFEFF/, '');
+        const normalized = original.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const aliasMap = {
+            generaltopic: 'generalTopic',
+            subtopic: 'subtopic',
+            charge: 'charge',
+            searchquery: 'searchQuery',
+            videoid: 'videoId',
+            videold: 'videoId',
+            videotitle: 'videoTitle',
+            videodescription: 'videoDescription',
+            channeltitle: 'channelTitle',
+            channelid: 'channelId',
+            publishedat: 'publishedAt',
+            thumbnailurl: 'thumbnailUrl',
+            videourl: 'videoUrl',
+            duration: 'duration',
+            durationseconds: 'durationSeconds',
+            isshort: 'isShort',
+            starttimestamp: 'startTimestamp',
+            starttime: 'startTimestamp',
+            starttimes: 'startTimestamp',
+            keeponrefresh: 'keepOnRefresh',
+            pinorder: 'pinOrder',
+            youtubeitemjson: 'youtubeItemJson',
+        };
+        return aliasMap[normalized] ?? original;
+    }
+    isValidYoutubeVideoUrl(value) {
+        const raw = value.trim();
+        if (!raw) {
+            return false;
+        }
+        try {
+            const url = new URL(raw);
+            const host = url.hostname.toLowerCase();
+            const isYoutubeHost = host === 'youtube.com' ||
+                host.endsWith('.youtube.com') ||
+                host === 'youtu.be' ||
+                host.endsWith('.youtu.be');
+            if (!isYoutubeHost) {
+                return false;
+            }
+            return this.extractVideoId(null, raw) !== null;
+        }
+        catch {
+            return false;
+        }
     }
     decodeHtmlEntities(value) {
         return value

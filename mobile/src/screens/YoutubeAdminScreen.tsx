@@ -1136,29 +1136,29 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
           );
         })()}
 
-        {topMatchItems.map((item) => {
-          const summaryQuery = topMatchSummaryByVideoId.get(item.videoId);
+        {(() => {
+          if (!primaryTopMatch) {
+            return null;
+          }
+
+          const summaryQuery = topMatchSummaryByVideoId.get(primaryTopMatch.videoId);
 
           if (!summaryQuery || summaryQuery.isLoading) {
             return (
-              <Text key={`summary-loading-${item.videoId}`} style={styles.topMatchSummaryHint}>
-                Checking cached comment summary...
-              </Text>
+              <Text style={styles.topMatchSummaryHint}>Checking cached comment summary...</Text>
             );
           }
 
           if (summaryQuery.isError) {
             return (
-              <Text key={`summary-error-${item.videoId}`} style={styles.topMatchSummaryHint}>
-                Comment summary unavailable right now.
-              </Text>
+              <Text style={styles.topMatchSummaryHint}>Comment summary unavailable right now.</Text>
             );
           }
 
           const summary = summaryQuery.data;
           if (!summary || summary.cacheStatus === 'miss') {
             return (
-              <View key={`summary-miss-${item.videoId}`} style={styles.topMatchSummaryCard}>
+              <View style={styles.topMatchSummaryCard}>
                 <Text style={styles.topMatchSummaryTitle}>Comment Summary</Text>
                 <Text style={styles.topMatchSummaryHint}>
                   No comment summary cached yet. Use Cache Top Match Insights to generate it.
@@ -1176,7 +1176,6 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
 
           return (
             <View
-              key={`summary-${item.videoId}`}
               style={[
                 styles.topMatchSummaryCard,
                 summary.cacheStatus === 'hit'
@@ -1200,7 +1199,7 @@ export const YoutubeAdminScreen: React.FC<YoutubeAdminScreenProps> = () => {
               <Text style={styles.topMatchSummaryText}>{summary.overallSummary}</Text>
             </View>
           );
-        })}
+        })()}
       </View>
     );
   };
