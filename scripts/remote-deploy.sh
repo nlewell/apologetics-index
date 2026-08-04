@@ -14,6 +14,26 @@ HEALTHCHECK_RETRY_DELAY="${HEALTHCHECK_RETRY_DELAY:-2}"
 DRY_RUN=0
 INSTALLED_DEV_DEPS=0
 
+load_api_key_from_env_file() {
+  local env_file="$BACKEND_DIR/.env"
+  local line=""
+
+  if [[ -n "${API_KEY:-}" || ! -f "$env_file" ]]; then
+    return 0
+  fi
+
+  line=$(grep -E '^API_KEY=' "$env_file" | tail -n 1 || true)
+  if [[ -z "$line" ]]; then
+    return 0
+  fi
+
+  API_KEY="${line#API_KEY=}"
+  API_KEY="${API_KEY%\"}"
+  API_KEY="${API_KEY#\"}"
+  export API_KEY
+  echo "Loaded API_KEY from $env_file for authenticated health checks"
+}
+
 usage() {
   cat <<'EOF'
 Usage: remote-deploy.sh [--dry-run]
@@ -146,6 +166,7 @@ else
 fi
 
 if command -v curl >/dev/null 2>&1; then
+  load_api_key_from_env_file
   echo "Running health check: $HEALTHCHECK_URL"
   if [[ "$DRY_RUN" == "1" ]]; then
     echo "+ health check with up to $HEALTHCHECK_RETRIES attempts and ${HEALTHCHECK_RETRY_DELAY}s delay"
