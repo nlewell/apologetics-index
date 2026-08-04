@@ -67,6 +67,40 @@ describe('ContentSpreadsheetService', () => {
     });
   });
 
+  it('ignores unknown extra CSV columns during import', async () => {
+    const csv = [
+      'generalTopic,subtopic,charge,searchQuery,videoUrl,startTimestamp,keepOnRefresh,pinOrder,notes,legacyField',
+      'Book of Mormon,Anachronisms,Steel,,https://www.youtube.com/watch?v=abc123,00:45,TRUE,3,optional note,legacy',
+    ].join('\n');
+
+    jest.spyOn(service as never, 'fetchVideoMetadataById' as never).mockResolvedValue({
+      videoId: 'abc123',
+      title: 'Example title',
+      description: 'Example description',
+      channelTitle: 'Example channel',
+      channelId: 'channel-1',
+      publishedAt: '2024-01-01T00:00:00.000Z',
+      thumbnailUrl: null,
+      videoUrl: 'https://www.youtube.com/watch?v=abc123',
+      duration: '1:23',
+      durationSeconds: 83,
+      isShort: false,
+    });
+
+    const result = await service.importCsv(csv);
+
+    expect(result.pinnedRowsImported).toBe(1);
+    expect(prismaService.youtubeVideoMetadata.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({
+          keepOnRefresh: true,
+          pinOrder: 3,
+          startTimestamp: '00:45',
+        }),
+      }),
+    );
+  });
+
   it('exports only administrator-editable columns', async () => {
     prismaService.apologeticIndexItem.findMany.mockResolvedValue([
       {
